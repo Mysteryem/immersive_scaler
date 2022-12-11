@@ -374,7 +374,7 @@ def scale_to_floor(arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, 
             hand.scale = (1 / arm_thickness, 1 / arm_scale_ratio, 1 / arm_thickness)
 
             result_final_points, result_total_legs = get_leg_proportions(arm)
-    print("Implemented leg portions: {}".format(result_final_points))
+        print("Implemented leg portions: {}".format(result_final_points))
     try:
         bpy.ops.cats_manual.pose_to_rest()
     except AttributeError as e:
