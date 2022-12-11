@@ -276,12 +276,6 @@ def get_leg_proportions(arm):
 def bone_direction(bone):
     return (bone.tail - bone.head).normalized()
 
-def angle(v1, v2, acute = True):
-    angle = acos(v1.dot(v2) / (v1.normalize * v2.normalize))
-    if (acute == True):
-        return angle
-    else:
-        return 2 * math.pi - angle
 
 def scale_legs(arm, leg_scale_ratio, leg_thickness, scale_foot, thigh_percentage):
 
