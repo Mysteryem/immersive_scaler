@@ -3,6 +3,8 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import Scene, Bone
 
+from sys import intern
+
 from .common import get_armature
 
 # For bone mapping. Currently needs to match the dict keys in operations.py
@@ -11,6 +13,9 @@ BONE_LIST = ["right_shoulder", "right_arm", "right_elbow", "right_wrist",
              "left_shoulder", "left_arm", "left_elbow", "left_wrist",
              "left_leg", "left_knee", "left_ankle", "left_eye",
              "neck", "head"]
+
+# Cache for enum property choices
+_ENUM_CACHE = None
 
 
 def set_properties():
@@ -163,16 +168,22 @@ def set_properties():
     bpy.types.Scene.imscale_show_debug = bpy.props.BoolProperty(name='Show debug panel', default=False)
     bpy.types.Scene.imscale_show_bone_map = bpy.props.BoolProperty(name='Show bone mapping', default=False)
 
+    _none_enum_item = ('_None',) * 3
+
+    def getbones(self, context):
+        global _ENUM_CACHE
+        choices = [_none_enum_item]
+        arm = get_armature()
+        if arm is not None:
+            # intern each string in the enum items to ensure Python has its own reference to it
+            choices = choices + list((intern(b.name),) * 3 for b in arm.data.bones)
+        # Storing the list of choices in bpy.types.Object.Enum doesn't seem to work properly for some reason, but we can
+        # use our own cache fine
+        _ENUM_CACHE = choices
+        return choices
+
     # Bone Mapping
     for bone_name in BONE_LIST:
-        def getbones(self, context):
-            choices = [('_None','_None','_None')]
-            arm = get_armature()
-            if arm is not None:
-                choices = choices + list((b.name, b.name, b.name) for b in arm.data.bones)
-            bpy.types.Object.Enum = choices
-            return bpy.types.Object.Enum
-
         prop = EnumProperty(
             name = bone_name.replace("_", " "),
             description = "Override for {} for when the bone is not automatically found.",
