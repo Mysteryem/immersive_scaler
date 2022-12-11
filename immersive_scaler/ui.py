@@ -12,16 +12,6 @@ BONE_LIST = ["right_shoulder", "right_arm", "right_elbow", "right_wrist",
              "left_leg", "left_knee", "left_ankle", "left_eye",
              "neck", "head"]
 
-def make_annotations(cls):
-    bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, tuple)}
-    if bl_props:
-        if '__annotations__' not in cls.__dict__:
-            setattr(cls, '__annotations__', {})
-        annotations = cls.__dict__['__annotations__']
-        for k, v in bl_props.items():
-            annotations[k] = v
-            delattr(cls, k)
-    return cls
 
 def set_properties():
     Scene.target_height = FloatProperty(
@@ -333,7 +323,6 @@ class ImmersiveScalerMenu(bpy.types.Panel):
 
 def ui_register():
     set_properties()
-    make_annotations(ImmersiveScalerMenu)
     bpy.utils.register_class(ImmersiveScalerMenu)
 
 def ui_unregister():

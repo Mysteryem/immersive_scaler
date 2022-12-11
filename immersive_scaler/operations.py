@@ -6,17 +6,6 @@ from .ui import set_properties
 
 from .common import get_armature
 
-def make_annotations(cls):
-    bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, tuple)}
-    if bl_props:
-        if '__annotations__' not in cls.__dict__:
-            setattr(cls, '__annotations__', {})
-        annotations = cls.__dict__['__annotations__']
-        for k, v in bl_props.items():
-            annotations[k] = v
-            delattr(cls, k)
-    return cls
-
 def obj_in_scene(obj):
     for o in bpy.context.view_layer.objects:
         if o is obj:
@@ -690,19 +679,14 @@ class UIGetScaleRatio(bpy.types.Operator):
 def ops_register():
     print("Registering Armature tuning add-on")
     bpy.utils.register_class(ArmatureRescale)
-    make_annotations(ArmatureRescale)
 
     bpy.utils.register_class(ArmatureSpreadFingers)
-    make_annotations(ArmatureSpreadFingers)
 
     bpy.utils.register_class(ArmatureShrinkHip)
-    make_annotations(ArmatureShrinkHip)
 
     bpy.utils.register_class(UIGetCurrentHeight)
-    make_annotations(UIGetCurrentHeight)
 
     bpy.utils.register_class(UIGetScaleRatio)
-    make_annotations(UIGetScaleRatio)
 
     print("Registering Armature tuning add-on")
 

@@ -1,18 +1,6 @@
 import bpy
 import mathutils
 
-# IDK why but this class is necessary
-def make_annotations(cls):
-    bl_props = {k: v for k, v in cls.__dict__.items() if isinstance(v, tuple)}
-    if bl_props:
-        if '__annotations__' not in cls.__dict__:
-            setattr(cls, '__annotations__', {})
-        annotations = cls.__dict__['__annotations__']
-        for k, v in bl_props.items():
-            annotations[k] = v
-            delattr(cls, k)
-    return cls
-
 def point_bone(bone, point):
     v1 = (bone.tail - bone.head).normalized()
     v2 = (bone.head - point).normalized()
@@ -111,7 +99,6 @@ class ArmatureAlign(bpy.types.Operator):
 
 def register():
     bpy.utils.register_class(ArmatureAlign)
-    make_annotations(ArmatureAlign)
 
 def unregister():
     bpy.utils.unregister_class(ArmatureAlign)
