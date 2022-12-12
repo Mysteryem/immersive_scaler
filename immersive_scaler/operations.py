@@ -83,47 +83,133 @@ def get_bone(name, arm):
             return bone_lookup[n]
     return arm.pose.bones[name]
 
-def bonetree(bone):
-    l = [bone]
-    for c in bone.children:
-        for b in bonetree(c):
-            l.append(b)
-    return l
+
+def get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
+    if v_co.dtype != np.single:
+        # The dtype isn't too important when not using foreach_set/foreach_get. Given another float type it would just
+        # mean we're doing math with more (or less) precision than existed in the first place.
+        raise ValueError("co array should be single precision float")
+    if len(wm.row) != 4 or len(wm.col) != 4:
+        raise ValueError("matrix must be 4x4")
+    # Create a view of the array so that when we set the shape, we set the shape of the view rather than the original
+    # array
+    v_co = v_co.view()
+    # Convert mathutils.Matrix to an np.ndarray
+    wm = np.array(wm, dtype=np.single)
+
+    # Change the shape we view the data with so that each element corresponds to a single vertex's (x,y,z)
+    v_co.shape = (-1, 3)
+    # We have a 4x4 matrix, but each vertex co has only 3 elements. Unlike multiplying a 4x4 mathutils.Matrix
+    # with a 3-length mathutils.Vector, numpy won't automatically extend the vector to have a 4th element with value
+    # of 1 (and will instead raise an error).
+    # Add 1 to the end of each element in the array using np.insert
+    index_to_insert_before = 3
+    value_to_insert = 1
+    v_co4 = np.insert(v_co, index_to_insert_before, value_to_insert, axis=1)
+    # To multiply the matrix (4, 4) by each vector in (num_verts, 4), we can transpose the entire array to turn it
+    # on its side and treat it as one giant matrix whereby each column is one vector. Note that with numpy, the
+    # transpose of an ndarray is a view, no data is copied.
+    # ┌a, b, c, d┐   ┌x1, y1, z1, 1┐    ┌a, b, c, d┐   ┌x1, x2, x3, x4, …, xn┐
+    # │e, f, g, h│ ? │x2, y2, z2, 1│ -> │e, f, g, h│ @ │y1, y2, y3, y4, …, yn│
+    # │i, j, k, l│   │x3, y3, z3, 1│    │i, j, k, l│   │z1, z2, z3, z4, …, zn│
+    # └m, n, o, p┘   │x4, y4, z4, 1│    └m, n, o, p┘   └ 1,  1,  1,  1, …,  1┘
+    #                ┊ …,  …,  …, …┊
+    #                └xn, yn, zn, 1┘
+    # This gives us a result with the shape (4, num_verts). The alternative would be to transpose the matrix instead
+    # and do `vco_4 @ wm.T`, which would give us the transpose of the first result with the shape (num_verts, 4).
+    v_co4_global_t = wm @ v_co4.T
+    # We only care about the z values, which will all currently be in index 2
+    global_z_only = v_co4_global_t[2]
+    return global_z_only
+
 
 def get_lowest_point():
     arm = get_armature()
-    bones = bonetree(get_bone("left_ankle", arm)) + bonetree(get_bone("right_ankle", arm))
+    bones = set()
+    for bone in (get_bone("left_ankle", arm), get_bone("right_ankle", arm)):
+        bones.add(bone.name)
+        bones.update(b.name for b in bone.children_recursive)
     meshes = get_body_meshes()
-    lowest_vertex_z = 999999
-    lowest_foot_z = 999999
+    lowest_vertex_z = math.inf
+    lowest_foot_z = math.inf
     for o in meshes:
-        # Can't do below workaround when stuff's hidden
-        hidden = o.hide_get()
-        o.hide_set(False)
-
-        # Going to edit mode and back fixes a weird bug sometimes..
-        # Mesh data doesn't match what's shown in blender, data hasn't
-        # updated yet but going to edit mode and bock forces an
-        # update. Unfortunately, this also makes it take noticably
-        # longer, since this whole function runs several times.
-        bpy.context.view_layer.objects.active = o
-        bpy.ops.object.mode_set(mode='EDIT', toggle = False)
-        o.update_from_editmode()
-        bpy.ops.object.mode_set(mode='EDIT', toggle = True)
         mesh = o.data
-        group_numbers = {o.vertex_groups[i].name: i for i in range(len(o.vertex_groups))}
-        foot_groups = [group_numbers[b.name] for b in bones if b.name in group_numbers]
+        if not mesh.vertices:
+            # Immediately skip if there's no vertices
+            continue
+        if mesh.shape_keys:
+            # Exiting edit mode synchronizes a mesh's vertex and 'basis' (reference) shape key positions, but if one of
+            # them is modified outside of edit mode without the other being modified in the same way also, the two can
+            # become desynchronized. What users see in the 3D view corresponds to the reference shape key, so we'll
+            # assume that has the correct positions.
+            num_verts = len(mesh.vertices)
+            # vertex positions ('co') are (x,y,z) vectors, but get flattened when using foreach_get/set, so the
+            # resulting array is 3 times the number of vertices
+            v_co = np.empty(num_verts * 3, dtype=np.single)
+            # Directly copy the 'co' of the reference shape key into the v_cos array (type must match the internal C
+            # type for a direct copy)
+            mesh.shape_keys.reference_key.data.foreach_get('co', v_co)
+            # Directly paste the 'co' copied from the reference shape key into the 'co' of the vertices
+            mesh.vertices.foreach_set('co', v_co)
+        else:
+            v_co = None
+        foot_groups = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
         wm = o.matrix_world
-        for v in mesh.vertices:
-            wco = wm @ v.co
-            lowest_vertex_z = min(lowest_vertex_z, wco[2])
-            # Check that v is weighted to the ankle or a child
-            if not any(g.group in foot_groups for g in v.groups):
-                continue
-            lowest_foot_z = min(lowest_foot_z, wco[2])
-        o.hide_set(hidden)
-    if lowest_foot_z == 999999:
-        return(lowest_vertex_z)
+        if foot_groups:
+            # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration
+            if lowest_foot_z < math.inf:
+                foot_z = [lowest_foot_z]
+                for v in mesh.vertices:
+                    # Check that v is weighted to the ankle or a child
+                    if any(g.group in foot_groups and g.weight for g in v.groups):
+                        wco = wm @ v.co
+                        foot_z.append(wco[2])
+                lowest_foot_z = min(foot_z)
+            else:
+                vertex_z = [lowest_vertex_z]
+                foot_z = [lowest_foot_z]
+                v_it = iter(mesh.vertices)
+                found_feet = False
+                for v in v_it:
+                    wco = wm @ v.co
+                    z = wco[2]
+                    # Check if v is weighted to the ankle or a child
+                    if any(g.group in foot_groups and g.weight for g in v.groups):
+                        foot_z.append(z)
+                        # If we get a single foot_z, we can iterate the rest, ignoring vertices that are not in a foot
+                        found_feet = True
+                        break
+                    else:
+                        vertex_z.append(z)
+                if found_feet:
+                    # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
+                    # Continue iterating without
+                    for v in v_it:
+                        # Check that v is weighted to the ankle or a child
+                        if any(g.group in foot_groups and g.weight for g in v.groups):
+                            wco = wm @ v.co
+                            foot_z.append(wco[2])
+                    lowest_foot_z = min(foot_z)
+                else:
+                    # Didn't manage to find any vertices belonging to feet
+                    lowest_vertex_z = min(vertex_z)
+        else:
+            # Don't need to get vertex weights, so we can use numpy for performance
+            # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
+            if v_co is None:
+                num_verts = len(mesh.vertices)
+                v_co = np.empty(num_verts * 3, dtype=np.single)
+                mesh.vertices.foreach_get('co', v_co)
+            global_z_only = get_global_z_from_co_ndarray(v_co, wm)
+            # Get the maximum value
+            min_global_z = np.min(global_z_only)
+            # Compare against the current lowest vertex z and set it to whichever is smallest
+            lowest_vertex_z = min(lowest_vertex_z, min_global_z)
+    if lowest_foot_z == math.inf:
+        if lowest_vertex_z == math.inf:
+            raise RuntimeError("No mesh data found")
+        else:
+            return lowest_vertex_z
     return lowest_foot_z
 
 
@@ -135,7 +221,7 @@ def get_highest_point():
     highest_vertex_z = minimum_value
     for o in meshes:
         mesh = o.data
-        wm = np.array(o.matrix_world, dtype=np.single)
+        wm = o.matrix_world
 
         # Sometimes the 'basis' (reference) shape key and mesh vertices can become desynchronized. If a mesh has shape
         # keys, then the reference shape key is what users will see in Blender, so get vertex positions from that.
@@ -145,29 +231,8 @@ def get_highest_point():
             continue
         v_co = np.empty(num_verts * 3, dtype=np.single)
         vertices.foreach_get('co', v_co)
-        # Change the shape we view the data with so that each element corresponds to a single vertex's (x,y,z)
-        v_co.shape = (num_verts, 3)
-        # We have a 4x4 matrix, but each vertex co has only 3 elements. Unlike multiplying a 4x4 mathutils.Matrix
-        # with a 3-length mathutils.Vector, numpy won't automatically extend the vector to have a 4th element with value
-        # of 1 (and will instead raise an error).
-        # Add 1 to the end of each element in the array using np.insert
-        index_to_insert_before = 3
-        value_to_insert = 1
-        v_co4 = np.insert(v_co, index_to_insert_before, value_to_insert, axis=1)
-        # To multiply the matrix (4, 4) by each vector in (num_verts, 4), we can transpose the entire array to turn it
-        # on its side and treat it as one giant matrix whereby each column is one vector. Note that with numpy, the
-        # transpose of an ndarray is a view, no data is copied.
-        # ┌a, b, c, d┐   ┌x1, y1, z1, 1┐    ┌a, b, c, d┐   ┌x1, x2, x3, x4, …, xn┐
-        # │e, f, g, h│ ? │x2, y2, z2, 1│ -> │e, f, g, h│ @ │y1, y2, y3, y4, …, yn│
-        # │i, j, k, l│   │x3, y3, z3, 1│    │i, j, k, l│   │z1, z2, z3, z4, …, zn│
-        # └m, n, o, p┘   │x4, y4, z4, 1│    └m, n, o, p┘   └ 1,  1,  1,  1, …,  1┘
-        #                ┊ …,  …,  …, …┊
-        #                └xn, yn, zn, 1┘
-        # This gives us a result with the shape (4, num_verts). The alternative would be to transpose the matrix instead
-        # and do `vco_4 @ wm.T`, which would give us the transpose of the first result with the shape (num_verts, 4).
-        v_co4_global_t = wm @ v_co4.T
-        # We only care about the z values, which will all currently be in index 2
-        global_z_only = v_co4_global_t[2]
+        # Get global vertex z values
+        global_z_only = get_global_z_from_co_ndarray(v_co, wm)
         # Get the maximum value
         max_global_z = np.max(global_z_only)
         # Compare against the current highest vertex z and set it to whichever is greatest
