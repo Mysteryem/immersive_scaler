@@ -80,6 +80,20 @@ def get_bone(name, arm):
     return arm.pose.bones[name]
 
 
+def bound_box_to_co_array(obj: bpy.types.Object):
+    # Note that bounding boxes of objects correspond to the object with shape keys and modifiers applied
+    # Bounding boxes are 2D bpy_prop_array, each bounding box is represented by 8 (x, y, z) rows. Since this is a
+    # bpy_prop_array, the dtype must match the internal C type, otherwise an error is raised.
+    bb_co = np.empty((8, 3), dtype=np.single)
+
+    # Temporarily disabling modifiers to get a more accurate bounding box of the mesh and then re-enabling the modifiers
+    # would be far too performance heavy. Changing active shape key might be too heavy too. Though, even if we change
+    # the active shape key or modifiers in code, the bounding box doesn't seem to update right away.
+    obj.bound_box.foreach_get(bb_co)
+
+    return bb_co
+
+
 def get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
     if v_co.dtype != np.single:
         # The dtype isn't too important when not using foreach_set/foreach_get. Given another float type it would just
@@ -133,6 +147,25 @@ def get_lowest_point():
         if not mesh.vertices:
             # Immediately skip if there's no vertices
             continue
+
+        wm = o.matrix_world
+
+        # Perform a fast check against the bounding box.
+        # If the minimum z of the bounding box (in world space) is higher than the current lowest z found, then we can
+        # skip the mesh because its lowest possible vertex is higher than the current lowest.
+        # Note that the bounding box includes the effect of modifiers and shape keys, so technically a modifier or
+        # active shape keys could move the bounding box up/down a significant amount to cause a mesh to be skipped when
+        # it shouldn't or vice versa, but this should be a rare occurrence. Additionally, it would only be a problem if
+        # we skipped a mesh we shouldn't have, since checking a mesh we didn't actually need to check has no effect
+        # other than making this function take longer.
+        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), wm)
+
+        found_feet_previously = lowest_foot_z < math.inf
+        current_min = lowest_foot_z if found_feet_previously else lowest_vertex_z
+        if np.min(global_bb_z) > current_min:
+            # Lowest possible vertex of this mesh is exceedingly likely to be higher than the current lowest found
+            continue
+
         if mesh.shape_keys:
             # Exiting edit mode synchronizes a mesh's vertex and 'basis' (reference) shape key positions, but if one of
             # them is modified outside of edit mode without the other being modified in the same way also, the two can
@@ -149,8 +182,8 @@ def get_lowest_point():
             mesh.vertices.foreach_set('co', v_co)
         else:
             v_co = None
+
         foot_group_indices = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
-        wm = o.matrix_world
         if not foot_group_indices:
             # Don't need to get vertex weights, so we can use numpy for performance
             # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
@@ -179,7 +212,7 @@ def get_lowest_point():
                             # Don't need to check any of the remaining vertex groups, so break the inner loop
                             break
                 return min(foot_z_list)
-            if lowest_foot_z < math.inf:
+            if found_feet_previously:
                 # We already have a value for lowest_foot_z, so we won't be using lowest_vertex_z and only need to care
                 # about vertices that are weighted to the ankles or below
                 lowest_foot_z = find_lowest_z_in_ankles([lowest_foot_z], mesh.vertices)
@@ -220,8 +253,8 @@ def get_highest_point():
     minimum_value = -math.inf
     highest_vertex_z = minimum_value
     for o in meshes:
-        mesh = o.data
         wm = o.matrix_world
+        mesh = o.data
 
         # Sometimes the 'basis' (reference) shape key and mesh vertices can become desynchronized. If a mesh has shape
         # keys, then the reference shape key is what users will see in Blender, so get vertex positions from that.
@@ -229,6 +262,21 @@ def get_highest_point():
         num_verts = len(vertices)
         if num_verts == 0:
             continue
+
+        # Perform a fast check against the bounding box.
+        # If the maximum z of the bounding box (in world space) is lower than the current highest z found, then we can
+        # skip the mesh because its highest possible vertex is lower than the current highest.
+        # Note that the bounding box includes the effect of modifiers and shape keys, so technically a modifier or
+        # active shape keys could move the bounding box up/down a significant amount to cause a mesh to be skipped when
+        # it shouldn't or vice versa, but this should be a rare occurrence. Additionally, it would only be a problem if
+        # we skipped a mesh we shouldn't have, since checking a mesh we didn't actually need to check has no effect
+        # other than making this function take longer.
+        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), wm)
+
+        if np.max(global_bb_z) < highest_vertex_z:
+            # Highest possible vertex of this mesh is exceedingly likely to be lower than the current highest found
+            continue
+
         v_co = np.empty(num_verts * 3, dtype=np.single)
         vertices.foreach_get('co', v_co)
         # Get global vertex z values
