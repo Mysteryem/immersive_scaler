@@ -155,12 +155,24 @@ def get_lowest_point():
             v_co = None
         foot_groups = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
         wm = o.matrix_world
-        if foot_groups:
+        if not foot_groups:
+            # Don't need to get vertex weights, so we can use numpy for performance
+            # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
+            if v_co is None:
+                num_verts = len(mesh.vertices)
+                v_co = np.empty(num_verts * 3, dtype=np.single)
+                mesh.vertices.foreach_get('co', v_co)
+            global_z_only = get_global_z_from_co_ndarray(v_co, wm)
+            # Get the maximum value
+            min_global_z = np.min(global_z_only)
+            # Compare against the current lowest vertex z and set it to whichever is smallest
+            lowest_vertex_z = min(lowest_vertex_z, min_global_z)
+        else:
             # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration
             if lowest_foot_z < math.inf:
                 foot_z = [lowest_foot_z]
                 for v in mesh.vertices:
-                    # Check that v is weighted to the ankle or a child
+                    # Check if v is weighted to the ankle or a child
                     for g in v.groups:
                         if g.group in foot_groups and g.weight:
                             wco = wm @ v.co
@@ -201,18 +213,6 @@ def get_lowest_point():
                 else:
                     # Didn't manage to find any vertices belonging to feet
                     lowest_vertex_z = min(vertex_z)
-        else:
-            # Don't need to get vertex weights, so we can use numpy for performance
-            # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
-            if v_co is None:
-                num_verts = len(mesh.vertices)
-                v_co = np.empty(num_verts * 3, dtype=np.single)
-                mesh.vertices.foreach_get('co', v_co)
-            global_z_only = get_global_z_from_co_ndarray(v_co, wm)
-            # Get the maximum value
-            min_global_z = np.min(global_z_only)
-            # Compare against the current lowest vertex z and set it to whichever is smallest
-            lowest_vertex_z = min(lowest_vertex_z, min_global_z)
     if lowest_foot_z == math.inf:
         if lowest_vertex_z == math.inf:
             raise RuntimeError("No mesh data found")
