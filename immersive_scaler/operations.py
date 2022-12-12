@@ -139,32 +139,35 @@ def get_lowest_point():
     for bone in (get_bone("left_ankle", arm), get_bone("right_ankle", arm)):
         bones.add(bone.name)
         bones.update(b.name for b in bone.children_recursive)
-    meshes = get_body_meshes()
+
+    meshes = []
+    for o in get_body_meshes():
+        # Get z components of worldspace bounding box
+        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
+        # Get minimum z component. This is exceedingly likely to be lower or the same as the lowest vertex in the mesh.
+        likely_lowest_possible_vertex_z = np.min(global_bb_z)
+        # Add the minimum z component along with the mesh object
+        meshes.append((likely_lowest_possible_vertex_z, o))
+    # Sort meshes by lowest bounding box first, that way, we can stop checking meshes once we get to a mesh whose lowest
+    # corner of the bounding box is higher than the current lowest vertex
+    meshes.sort(key=lambda t: t[0])
+
     lowest_vertex_z = math.inf
     lowest_foot_z = math.inf
-    for o in meshes:
+
+    for likely_lowest_possible_vertex_z, o in meshes:
         mesh = o.data
         if not mesh.vertices:
             # Immediately skip if there's no vertices
             continue
 
-        wm = o.matrix_world
-
-        # Perform a fast check against the bounding box.
-        # If the minimum z of the bounding box (in world space) is higher than the current lowest z found, then we can
-        # skip the mesh because its lowest possible vertex is higher than the current lowest.
-        # Note that the bounding box includes the effect of modifiers and shape keys, so technically a modifier or
-        # active shape keys could move the bounding box up/down a significant amount to cause a mesh to be skipped when
-        # it shouldn't or vice versa, but this should be a rare occurrence. Additionally, it would only be a problem if
-        # we skipped a mesh we shouldn't have, since checking a mesh we didn't actually need to check has no effect
-        # other than making this function take longer.
-        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), wm)
-
         found_feet_previously = lowest_foot_z < math.inf
         current_min = lowest_foot_z if found_feet_previously else lowest_vertex_z
-        if np.min(global_bb_z) > current_min:
-            # Lowest possible vertex of this mesh is exceedingly likely to be higher than the current lowest found
-            continue
+        if likely_lowest_possible_vertex_z > current_min:
+            # Lowest possible vertex of this mesh is exceedingly likely to be higher than the current lowest found.
+            # Since the meshes are sorted by lowest possible vertex first, any subsequent meshes will be the same, so we
+            # don't need to check them.
+            break
 
         if mesh.shape_keys:
             # Exiting edit mode synchronizes a mesh's vertex and 'basis' (reference) shape key positions, but if one of
@@ -184,6 +187,7 @@ def get_lowest_point():
             v_co = None
 
         foot_group_indices = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
+        wm = o.matrix_world
         if not foot_group_indices:
             # Don't need to get vertex weights, so we can use numpy for performance
             # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
@@ -247,12 +251,23 @@ def get_lowest_point():
 
 
 def get_highest_point():
-    # Almost the same as get_lowest_point for obvious reasons, but using numpy for speed since we don't need to check
-    # vertex weights
-    meshes = get_body_meshes()
+    # Almost the same as get_lowest_point for obvious reasons, but only using numpy since we don't need to check vertex
+    # weights
+    meshes = []
+    for o in get_body_meshes():
+        # Get z components of worldspace bounding box
+        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
+        # Get minimum z component. This is exceedingly likely to be lower or the same as the lowest vertex in the mesh.
+        likely_lowest_possible_vertex_z = np.min(global_bb_z)
+        # Add the minimum z component along with the mesh object
+        meshes.append((likely_lowest_possible_vertex_z, o))
+    # Sort meshes by highest bounding box first, that way, we can stop checking meshes once we get to a mesh whose
+    # highest corner of the bounding box is lower than the current highest vertex
+    meshes.sort(key=lambda t: t[0], reverse=True)
+
     minimum_value = -math.inf
     highest_vertex_z = minimum_value
-    for o in meshes:
+    for likely_highest_possible_vertex_z, o in meshes:
         wm = o.matrix_world
         mesh = o.data
 
@@ -263,19 +278,11 @@ def get_highest_point():
         if num_verts == 0:
             continue
 
-        # Perform a fast check against the bounding box.
-        # If the maximum z of the bounding box (in world space) is lower than the current highest z found, then we can
-        # skip the mesh because its highest possible vertex is lower than the current highest.
-        # Note that the bounding box includes the effect of modifiers and shape keys, so technically a modifier or
-        # active shape keys could move the bounding box up/down a significant amount to cause a mesh to be skipped when
-        # it shouldn't or vice versa, but this should be a rare occurrence. Additionally, it would only be a problem if
-        # we skipped a mesh we shouldn't have, since checking a mesh we didn't actually need to check has no effect
-        # other than making this function take longer.
-        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), wm)
-
-        if np.max(global_bb_z) < highest_vertex_z:
-            # Highest possible vertex of this mesh is exceedingly likely to be lower than the current highest found
-            continue
+        if likely_highest_possible_vertex_z < highest_vertex_z:
+            # Highest possible vertex of this mesh is exceedingly likely to be lower than the current highest found.
+            # Since the meshes are sorted by highest possible vertex first, any subsequent meshes will be the same, so
+            # we don't need to check them.
+            break
 
         v_co = np.empty(num_verts * 3, dtype=np.single)
         vertices.foreach_get('co', v_co)
