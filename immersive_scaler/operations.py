@@ -27,6 +27,7 @@ def get_body_meshes(armature_name=None):
 
 
 def unhide_obj(obj):
+    # FIXME: completely broken, unhide_obj is this function
     if not 'hide_states' in dir(unhide_obj):
         unhide_obj.hide_states = {}
     if not obj in unhide_obj.hide_states:
@@ -36,6 +37,7 @@ def unhide_obj(obj):
 
 
 def rehide_obj(obj):
+    # FIXME: completely broken, unhide_obj is the previous function
     if not 'hide_states' in dir(unhide_obj):
         return
     if not obj in unhide_obj.hide_states:
