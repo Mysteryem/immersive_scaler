@@ -411,10 +411,11 @@ def calculate_arm_rescaling(obj, head_arm_change, legacy = True):
 
 
 def get_eye_height(obj):
-    left_eye = get_bone("left_eye", obj)
-    right_eye = get_bone("right_eye", obj)
-    if left_eye == None or right_eye == None:
-        raise(RuntimeError('Cannot identify two eye bones'))
+    try:
+        left_eye = get_bone("left_eye", obj)
+        right_eye = get_bone("right_eye", obj)
+    except KeyError as ke:
+        raise RuntimeError(f'Cannot identify two eye bones: {ke}')
 
     eye_average = (left_eye.head + right_eye.head) / 2
 
