@@ -153,9 +153,9 @@ def get_lowest_point():
             mesh.vertices.foreach_set('co', v_co)
         else:
             v_co = None
-        foot_groups = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
+        foot_group_indices = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
         wm = o.matrix_world
-        if not foot_groups:
+        if not foot_group_indices:
             # Don't need to get vertex weights, so we can use numpy for performance
             # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
             if v_co is None:
@@ -174,7 +174,7 @@ def get_lowest_point():
                 for vert in vertices:
                     for group in vert.groups:
                         # .group is the index of the vertex_group
-                        if group.group in foot_groups and group.weight:
+                        if group.group in foot_group_indices and group.weight:
                             # The current vertex is weighted
                             # Calculate the global (world) position
                             world_co = wm @ vert.co
@@ -191,33 +191,22 @@ def get_lowest_point():
                 # We don't have a value for lowest_foot_z yet, so we need to record the lowest vertices even if they're
                 # not weighted to the ankles or below
                 vertex_z = [lowest_vertex_z]
-                foot_z = [lowest_foot_z]
                 # Using an iterator specifically because we may want to change to a more optimised loop part way through
                 v_it = iter(mesh.vertices)
                 found_feet = False
                 for v in v_it:
                     wco = wm @ v.co
                     z = wco[2]
+                    vertex_z.append(z)
                     # Check if v is weighted to the ankle or a child
                     for g in v.groups:
-                        if g.group in foot_groups and g.weight:
-                            foot_z.append(z)
-                            # Python lacks the ability to break an outer for loop from an inner for loop, so we have to
-                            # be a bit creative on the following code
+                        if g.group in foot_group_indices and g.weight:
+                            found_feet = True
+                            # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
+                            # Continue iterating with a slightly more optimised loop until the iterator is exhausted
+                            lowest_foot_z = find_lowest_z_in_ankles([lowest_foot_z, z], v_it)
                             break
-                    else:
-                        # else on a for loop is only run if the loop terminated by iterating to the end
-                        vertex_z.append(z)
-                        continue
-                    # If we reach this break, then it means we broke out of the for loop because we found feet and
-                    # should also break the outer for loop
-                    found_feet = True
-                    break
-                if found_feet:
-                    # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
-                    # Continue iterating with a slightly more optimised loop
-                    lowest_foot_z = find_lowest_z_in_ankles(foot_z, v_it)
-                else:
+                if not found_feet:
                     # Didn't manage to find any vertices belonging to feet
                     lowest_vertex_z = min(vertex_z)
     if lowest_foot_z == math.inf:
