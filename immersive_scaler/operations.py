@@ -335,18 +335,31 @@ def get_current_scaling(obj):
 
 
 def head_to_hand(obj, legacy = True):
+    """Get the length from the head (legacy) or neck to the start of the wrist bone as if the armature was in t-pose"""
     # Since arms might not be flat, add the length of the arm to the x
-    # coordinate of the shoulder
+    # coordinate of the upper arm
     headpos = get_bone("head", obj).head
     neckpos = get_bone("neck", obj).head
-    shoulder = get_bone("right_arm", obj).head
-    arm_length = (get_bone("right_arm",obj).head - get_bone("right_wrist", obj).head).length
-    arm_length = (get_bone("right_arm",obj).length + get_bone("right_elbow", obj).length)
-    t_hand_pos = mathutils.Vector((shoulder[0] - arm_length, shoulder[1], shoulder[2]))
+    upper_arm = get_bone("right_arm", obj).head
+    elbow = get_bone("right_elbow", obj).head
+    wrist = get_bone("right_wrist", obj).head
+    # Unity bones are from joint to joint, ignoring whatever the tail may be in Blender
+    # Length from upper_arm joint to elbow joint
+    upper_arm_length = (upper_arm - elbow).length
+    # Length from elbow joint to wrist joint
+    lower_arm_length = (elbow - wrist).length
+    arm_length = upper_arm_length + lower_arm_length
+    # We're working with the right arm, which is on the -x side in Blender, so subtract arm length from the x of start
+    # of the arm to get the position of the wrist if the arms were in t-pose (we're assuming a t-pose without any
+    # shoulder movement).
+    t_hand_pos = mathutils.Vector((upper_arm.x - arm_length, upper_arm.y, upper_arm.z))
     bpy.context.scene.cursor.location = t_hand_pos
     if legacy:
+        # The legacy calculations give slightly longer head_to_hand length, since the head bone is higher up than the
+        # neck bone
         return (headpos - t_hand_pos).length
-    return (neckpos - t_hand_pos).length
+    else:
+        return (neckpos - t_hand_pos).length
 
 
 def calculate_arm_rescaling(obj, head_arm_change, legacy = True):
