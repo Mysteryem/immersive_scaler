@@ -116,7 +116,6 @@ def get_lowest_point():
         wm = o.matrix_world
         for v in mesh.vertices:
             wco = wm @ v.co
-            wco = v.co
             lowest_vertex_z = min(lowest_vertex_z, wco[2])
             # Check that v is weighted to the ankle or a child
             if not any(g.group in foot_groups for g in v.groups):
@@ -171,7 +170,7 @@ def get_highest_point():
         global_z_only = v_co4_global_t[2]
         # Get the maximum value
         max_global_z = np.max(global_z_only)
-        # Compare against the current highest vertex z and set it to whichever it greatest
+        # Compare against the current highest vertex z and set it to whichever is greatest
         highest_vertex_z = max(highest_vertex_z, max_global_z)
     if highest_vertex_z == minimum_value:
         raise RuntimeError("No mesh data found")
