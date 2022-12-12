@@ -45,10 +45,6 @@ def rehide_obj(obj):
     del(unhide_obj.hide_states[obj])
 
 
-def hide_reset():
-    del unhide_obj.hide_states
-
-
 bone_names = {
     "right_shoulder": ["rightshoulder", "shoulderr", "rshoulder"],
     "right_arm": ["rightarm", "armr", "rarm", "upperarmr", "rightupperarm"],
@@ -247,9 +243,6 @@ def get_highest_point():
         return highest_vertex_z
 
 
-def get_height():
-    return get_highest_point() - get_lowest_point()
-
 def get_view_y(obj, custom_scale_ratio=.4537, legacy = True):
     # VRC uses the distance between the head bone and right hand in
     # t-pose as the basis for world scale. Enforce t-pose locally to
@@ -375,9 +368,6 @@ def get_leg_proportions(arm):
     total = l[0] - l[3]
     nl = list([1 - (i-l[3])/total for i in l])
     return nl, total
-
-def bone_direction(bone):
-    return (bone.tail - bone.head).normalized()
 
 
 def scale_legs(arm, leg_scale_ratio, leg_thickness, scale_foot, thigh_percentage):

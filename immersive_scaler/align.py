@@ -1,27 +1,6 @@
 import bpy
 import mathutils
 
-def point_bone(bone, point):
-    v1 = (bone.tail - bone.head).normalized()
-    v2 = (bone.head - point).normalized()
-
-    # Need to transform the global rotation between the twe vectors
-    # into the local space of the bone
-    #
-    # Essentially, R_l = B @ R_g @ B^-1
-    # where
-    # R is the desired rotation (rotation_quat_pose)
-    #  R_l is the local rotaiton
-    #  R_g is the global rotation
-    #  B is the bone's global rotation
-    #  B^-1 is the inverse of the bone's rotation
-    rotation_quat_pose = v1.rotation_difference(v2)
-    bm = bone.matrix.to_quaternion()
-    bm.rotate(rotation_quat_pose)
-    bm.rotate(bone.matrix.inverted())
-
-    bone.rotation_quaternion = bm
-
 def align_bones(dest_bones, root_bone):
     if not root_bone.name in dest_bones:
         return
