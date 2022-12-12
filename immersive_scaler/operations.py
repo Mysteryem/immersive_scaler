@@ -169,17 +169,26 @@ def get_lowest_point():
             lowest_vertex_z = min(lowest_vertex_z, min_global_z)
         else:
             # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration
-            if lowest_foot_z < math.inf:
-                foot_z = [lowest_foot_z]
-                for v in mesh.vertices:
-                    # Check if v is weighted to the ankle or a child
+            # Helper function to reduce duplicate code
+            def find_lowest_z_in_ankles(foot_z, vertices):
+                for v in vertices:
                     for g in v.groups:
                         if g.group in foot_groups and g.weight:
+                            # The current vertex is weighted
+                            # Calculate the global (world) position
                             wco = wm @ v.co
+                            # Append the z component
                             foot_z.append(wco[2])
+                            # Don't need to check any of the remaining vertex groups, so break the inner loop
                             break
-                lowest_foot_z = min(foot_z)
+                return min(foot_z_list)
+            if lowest_foot_z < math.inf:
+                # We already have a value for lowest_foot_z, so we won't be using lowest_vertex_z and only need to care
+                # about vertices that are weighted to the ankles or below
+                lowest_foot_z = find_lowest_z_in_ankles([lowest_foot_z], mesh.vertices)
             else:
+                # We don't have a value for lowest_foot_z yet, so we need to record the lowest vertices even if they're
+                # not weighted to the ankles or below
                 vertex_z = [lowest_vertex_z]
                 foot_z = [lowest_foot_z]
                 v_it = iter(mesh.vertices)
@@ -201,15 +210,8 @@ def get_lowest_point():
                     break
                 if found_feet:
                     # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
-                    # Continue iterating without
-                    for v in v_it:
-                        # Check that v is weighted to the ankle or a child
-                        for g in v.groups:
-                            if g.group in foot_groups and g.weight:
-                                wco = wm @ v.co
-                                foot_z.append(wco[2])
-                                break
-                    lowest_foot_z = min(foot_z)
+                    # Continue iterating with a slightly more optimised loop
+                    lowest_foot_z = find_lowest_z_in_ankles(foot_z, v_it)
                 else:
                     # Didn't manage to find any vertices belonging to feet
                     lowest_vertex_z = min(vertex_z)
