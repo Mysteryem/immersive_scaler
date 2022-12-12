@@ -161,9 +161,11 @@ def get_lowest_point():
                 foot_z = [lowest_foot_z]
                 for v in mesh.vertices:
                     # Check that v is weighted to the ankle or a child
-                    if any(g.group in foot_groups and g.weight for g in v.groups):
-                        wco = wm @ v.co
-                        foot_z.append(wco[2])
+                    for g in v.groups:
+                        if g.group in foot_groups and g.weight:
+                            wco = wm @ v.co
+                            foot_z.append(wco[2])
+                            break
                 lowest_foot_z = min(foot_z)
             else:
                 vertex_z = [lowest_vertex_z]
@@ -174,21 +176,27 @@ def get_lowest_point():
                     wco = wm @ v.co
                     z = wco[2]
                     # Check if v is weighted to the ankle or a child
-                    if any(g.group in foot_groups and g.weight for g in v.groups):
-                        foot_z.append(z)
-                        # If we get a single foot_z, we can iterate the rest, ignoring vertices that are not in a foot
-                        found_feet = True
-                        break
+                    for g in v.groups:
+                        if g.group in foot_groups and g.weight:
+                            foot_z.append(z)
+                            found_feet = True
+                            break
                     else:
+                        # else on a for loop is only run if the loop terminated by iterating to the end
                         vertex_z.append(z)
+                        continue
+                    # If we reach this break, then it means we broke out of the for loop because we found feet
+                    break
                 if found_feet:
                     # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
                     # Continue iterating without
                     for v in v_it:
                         # Check that v is weighted to the ankle or a child
-                        if any(g.group in foot_groups and g.weight for g in v.groups):
-                            wco = wm @ v.co
-                            foot_z.append(wco[2])
+                        for g in v.groups:
+                            if g.group in foot_groups and g.weight:
+                                wco = wm @ v.co
+                                foot_z.append(wco[2])
+                                break
                     lowest_foot_z = min(foot_z)
                 else:
                     # Didn't manage to find any vertices belonging to feet
