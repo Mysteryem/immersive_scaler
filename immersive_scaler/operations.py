@@ -163,22 +163,23 @@ def get_lowest_point():
                 v_co = np.empty(num_verts * 3, dtype=np.single)
                 mesh.vertices.foreach_get('co', v_co)
             global_z_only = get_global_z_from_co_ndarray(v_co, wm)
-            # Get the maximum value
+            # Get the minimum value
             min_global_z = np.min(global_z_only)
             # Compare against the current lowest vertex z and set it to whichever is smallest
             lowest_vertex_z = min(lowest_vertex_z, min_global_z)
         else:
             # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration
             # Helper function to reduce duplicate code
-            def find_lowest_z_in_ankles(foot_z, vertices):
-                for v in vertices:
-                    for g in v.groups:
-                        if g.group in foot_groups and g.weight:
+            def find_lowest_z_in_ankles(foot_z_list, vertices):
+                for vert in vertices:
+                    for group in vert.groups:
+                        # .group is the index of the vertex_group
+                        if group.group in foot_groups and group.weight:
                             # The current vertex is weighted
                             # Calculate the global (world) position
-                            wco = wm @ v.co
+                            world_co = wm @ vert.co
                             # Append the z component
-                            foot_z.append(wco[2])
+                            foot_z_list.append(world_co[2])
                             # Don't need to check any of the remaining vertex groups, so break the inner loop
                             break
                 return min(foot_z_list)
@@ -191,6 +192,7 @@ def get_lowest_point():
                 # not weighted to the ankles or below
                 vertex_z = [lowest_vertex_z]
                 foot_z = [lowest_foot_z]
+                # Using an iterator specifically because we may want to change to a more optimised loop part way through
                 v_it = iter(mesh.vertices)
                 found_feet = False
                 for v in v_it:
@@ -200,13 +202,16 @@ def get_lowest_point():
                     for g in v.groups:
                         if g.group in foot_groups and g.weight:
                             foot_z.append(z)
-                            found_feet = True
+                            # Python lacks the ability to break an outer for loop from an inner for loop, so we have to
+                            # be a bit creative on the following code
                             break
                     else:
                         # else on a for loop is only run if the loop terminated by iterating to the end
                         vertex_z.append(z)
                         continue
-                    # If we reach this break, then it means we broke out of the for loop because we found feet
+                    # If we reach this break, then it means we broke out of the for loop because we found feet and
+                    # should also break the outer for loop
+                    found_feet = True
                     break
                 if found_feet:
                     # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
