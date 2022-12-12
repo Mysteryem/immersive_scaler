@@ -1,6 +1,7 @@
 import bpy
 import mathutils
 import math
+import numpy as np
 
 from .ui import set_properties
 
@@ -126,23 +127,57 @@ def get_lowest_point():
         return(lowest_vertex_z)
     return lowest_foot_z
 
+
 def get_highest_point():
-    # Almost the same as get_lowest_point for obvious reasons
+    # Almost the same as get_lowest_point for obvious reasons, but using numpy for speed since we don't need to check
+    # vertex weights
     meshes = get_body_meshes()
-    # TODO: bounds check
-    highest_vertex = None
-    highest_vertex_z = 0
+    minimum_value = -math.inf
+    highest_vertex_z = minimum_value
     for o in meshes:
         mesh = o.data
-        wm = o.matrix_world
-        for v in mesh.vertices:
-            wco = wm @ v.co
-            if wco[2] > highest_vertex_z:
-                highest_vertex = v
-                highest_vertex_z = wco[2]
-    if highest_vertex == None:
-        raise(RuntimeError("No mesh data found"))
-    return(highest_vertex_z)
+        wm = np.array(o.matrix_world, dtype=np.single)
+
+        # Sometimes the 'basis' (reference) shape key and mesh vertices can become desynchronized. If a mesh has shape
+        # keys, then the reference shape key is what users will see in Blender, so get vertex positions from that.
+        vertices = mesh.shape_keys.reference_key.data if mesh.shape_keys else mesh.vertices
+        num_verts = len(vertices)
+        if num_verts == 0:
+            continue
+        v_co = np.empty(num_verts * 3, dtype=np.single)
+        vertices.foreach_get('co', v_co)
+        # Change the shape we view the data with so that each element corresponds to a single vertex's (x,y,z)
+        v_co.shape = (num_verts, 3)
+        # We have a 4x4 matrix, but each vertex co has only 3 elements. Unlike multiplying a 4x4 mathutils.Matrix
+        # with a 3-length mathutils.Vector, numpy won't automatically extend the vector to have a 4th element with value
+        # of 1 (and will instead raise an error).
+        # Add 1 to the end of each element in the array using np.insert
+        index_to_insert_before = 3
+        value_to_insert = 1
+        v_co4 = np.insert(v_co, index_to_insert_before, value_to_insert, axis=1)
+        # To multiply the matrix (4, 4) by each vector in (num_verts, 4), we can transpose the entire array to turn it
+        # on its side and treat it as one giant matrix whereby each column is one vector. Note that with numpy, the
+        # transpose of an ndarray is a view, no data is copied.
+        # ┌a, b, c, d┐   ┌x1, y1, z1, 1┐    ┌a, b, c, d┐   ┌x1, x2, x3, x4, …, xn┐
+        # │e, f, g, h│ ? │x2, y2, z2, 1│ -> │e, f, g, h│ @ │y1, y2, y3, y4, …, yn│
+        # │i, j, k, l│   │x3, y3, z3, 1│    │i, j, k, l│   │z1, z2, z3, z4, …, zn│
+        # └m, n, o, p┘   │x4, y4, z4, 1│    └m, n, o, p┘   └ 1,  1,  1,  1, …,  1┘
+        #                ┊ …,  …,  …, …┊
+        #                └xn, yn, zn, 1┘
+        # This gives us a result with the shape (4, num_verts). The alternative would be to transpose the matrix instead
+        # and do `vco_4 @ wm.T`, which would give us the transpose of the first result with the shape (num_verts, 4).
+        v_co4_global_t = wm @ v_co4.T
+        # We only care about the z values, which will all currently be in index 2
+        global_z_only = v_co4_global_t[2]
+        # Get the maximum value
+        max_global_z = np.max(global_z_only)
+        # Compare against the current highest vertex z and set it to whichever it greatest
+        highest_vertex_z = max(highest_vertex_z, max_global_z)
+    if highest_vertex_z == minimum_value:
+        raise RuntimeError("No mesh data found")
+    else:
+        return highest_vertex_z
+
 
 def get_height():
     return get_highest_point() - get_lowest_point()
