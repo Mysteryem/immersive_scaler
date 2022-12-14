@@ -55,8 +55,7 @@ re-enable it.
 
 ## Usage
 
-First, install the CATS plugin. There is currently a hard
-dependency on the pose mode operations.
+First, it's recommended to install the CATS plugin.
 
 Import your avatar, use the CATS fix (no arguments necessary,
 I've just observed weird behavior when run against armatures without
