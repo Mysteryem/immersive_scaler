@@ -3,43 +3,42 @@ import bpy
 from typing import Optional, Literal, Any
 
 
-def get_armature(armature_name=None) -> Optional[bpy.types.Object]:
-    scene = bpy.context.scene
-    if not armature_name:
-        # Get armature from Cats by default if Cats is loaded.
-        # Cats stores its currently active armature in an 'armature' EnumProperty added to Scene objects
-        # If Cats is loaded, this will always return a string, otherwise, the property won't (shouldn't) exist and None
-        # will be returned.
-        armature_name = getattr(scene, 'armature', None)
-        if armature_name:
-            cats_armature = scene.objects.get(armature_name, None)
-            if cats_armature and cats_armature.type == 'ARMATURE':
-                return cats_armature
-            else:
-                return None
-        else:
-            # Try to the Object called "Armature"
-            armature_name = "Armature"
-            obj = scene.objects.get(armature_name, None)
-            if obj and obj.type == 'ARMATURE':
-                return obj
-            else:
-                # Look through all armature objects, if there's only one, use that
-                obj = None
-                for o in scene.objects:
-                    if o.type == 'ARMATURE':
-                        if obj is None:
-                            obj = o
-                        else:
-                            # There's more than one, we don't know which to use, so return None
-                            return None
-                return obj
-    else:
-        obj = scene.objects.get(armature_name, None)
-        if obj and obj.type == 'ARMATURE':
-            return obj
+def get_armature() -> Optional[bpy.types.Object]:
+    context = bpy.context
+    scene = context.scene
+    # Get armature from Cats by default if Cats is loaded.
+    # Cats stores its currently active armature in an 'armature' EnumProperty added to Scene objects
+    # If Cats is loaded, this will always return a string, otherwise, the property won't (shouldn't) exist and None
+    # will be returned.
+    armature_name = getattr(scene, 'armature', None)
+    if armature_name:
+        cats_armature = scene.objects.get(armature_name, None)
+        if cats_armature and cats_armature.type == 'ARMATURE':
+            return cats_armature
         else:
             return None
+
+    # Try to get the armature from the context, this is typically the active object
+    obj = context.object
+    if obj and obj.type == 'ARMATURE':
+        return obj
+
+    # Try to the Object called "Armature"
+    armature_name = "Armature"
+    obj = scene.objects.get(armature_name, None)
+    if obj and obj.type == 'ARMATURE':
+        return obj
+
+    # Look through all armature objects, if there's only one, use that
+    obj = None
+    for o in scene.objects:
+        if o.type == 'ARMATURE':
+            if obj is None:
+                obj = o
+            else:
+                # There's more than one, we don't know which to use, so return None
+                return None
+    return obj
 
 
 _EXECUTION_CONTEXTS = Literal[

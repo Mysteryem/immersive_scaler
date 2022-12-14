@@ -12,8 +12,8 @@ def obj_in_scene(obj):
             return True
     return False
 
-def get_body_meshes(armature_name=None):
-    arm = get_armature(armature_name)
+def get_body_meshes():
+    arm = get_armature()
     meshes = []
     for c in arm.children:
         if not obj_in_scene(c):
