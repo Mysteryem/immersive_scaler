@@ -1,6 +1,6 @@
 import bpy
 
-from typing import Optional, Any
+from typing import Optional, Any, Set, Dict
 
 
 def get_armature() -> Optional[bpy.types.Object]:
@@ -59,9 +59,9 @@ if bpy.app.version >= (3, 2):
         with context.temp_override(**context_override):
             return operator(*args, **operator_args)
 else:
-    def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
+    def op_override(operator, context_override: Dict[str, Any], context: Optional[bpy.types.Context] = None,
                     execution_context: Optional[str] = None,
-                    undo: Optional[bool] = None, **operator_args) -> set[str]:
+                    undo: Optional[bool] = None, **operator_args) -> Set[str]:
         """Call an operator with a context override"""
         if context is not None:
             context_base = context.copy()
