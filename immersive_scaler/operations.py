@@ -264,10 +264,11 @@ def get_highest_point():
     for o in get_body_meshes():
         # Get z components of worldspace bounding box
         global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
-        # Get minimum z component. This is exceedingly likely to be lower or the same as the lowest vertex in the mesh.
-        likely_lowest_possible_vertex_z = np.min(global_bb_z)
-        # Add the minimum z component along with the mesh object
-        meshes.append((likely_lowest_possible_vertex_z, o))
+        # Get maximum z component. This is exceedingly likely to be higher or the same as the highest vertex in the
+        # mesh.
+        likely_highest_possible_vertex_z = np.max(global_bb_z)
+        # Add the maximum z component along with the mesh object
+        meshes.append((likely_highest_possible_vertex_z, o))
     # Sort meshes by highest bounding box first, that way, we can stop checking meshes once we get to a mesh whose
     # highest corner of the bounding box is lower than the current highest vertex
     meshes.sort(key=lambda t: t[0], reverse=True)
