@@ -169,12 +169,24 @@ def get_lowest_point():
             continue
 
         found_feet_previously = lowest_foot_z < math.inf
-        current_min = lowest_foot_z if found_feet_previously else lowest_vertex_z
-        if likely_lowest_possible_vertex_z > current_min:
+        if found_feet_previously and likely_lowest_possible_vertex_z > lowest_foot_z:
             # Lowest possible vertex of this mesh is exceedingly likely to be higher than the current lowest found.
             # Since the meshes are sorted by lowest possible vertex first, any subsequent meshes will be the same, so we
             # don't need to check them.
             break
+
+        foot_group_indices = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
+        if not foot_group_indices:
+            if found_feet_previously:
+                # Vertices belonging to feet were found previously, but the current mesh doesn't have any vertex groups
+                # that correspond to feet, so skip the mesh
+                continue
+            elif likely_lowest_possible_vertex_z > lowest_vertex_z:
+                # Vertices belonging to feet have yet to be found, but the current mesh doesn't have any vertex groups
+                # that correspond to feet and its lowest possible vertex is exceedingly likely to be higher than the
+                # current lowest found. Since we could still find a mesh with vertices assigned to feet, we can't stop
+                # iteration here, but we can skip the current mesh at least.
+                continue
 
         if mesh.shape_keys:
             # Exiting edit mode synchronizes a mesh's vertex and 'basis' (reference) shape key positions, but if one of
@@ -193,7 +205,6 @@ def get_lowest_point():
         else:
             v_co = None
 
-        foot_group_indices = {idx for idx, vg in enumerate(o.vertex_groups) if vg.name in bones}
         wm = o.matrix_world
         if not foot_group_indices:
             # Don't need to get vertex weights, so we can use numpy for performance
