@@ -930,7 +930,23 @@ def apply_pose_to_rest(preserve_volume=True):
     bpy.ops.pose.armature_apply({'active_object': arm})
 
 
-class ArmatureRescale(bpy.types.Operator):
+class ArmatureOperator(bpy.types.Operator):
+    # poll_message_set was added in 3.0
+    if not hasattr(bpy.types.Operator, 'poll_message_set'):
+        @classmethod
+        def poll_message_set(cls, message, *args):
+            pass
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        if get_armature() is None:
+            cls.poll_message_set("Armature not found. Select an armature as active or ensure an armature is set in Cats"
+                                 " if you have Cats installed.")
+            return False
+        return True
+
+
+class ArmatureRescale(ArmatureOperator):
     """Script to scale most aspects of an armature for use in vrchat"""
     bl_idname = "armature.rescale"
     bl_label = "Rescale Armature"
@@ -976,7 +992,7 @@ class ArmatureRescale(bpy.types.Operator):
         return self.execute(context)
 
 
-class ArmatureSpreadFingers(bpy.types.Operator):
+class ArmatureSpreadFingers(ArmatureOperator):
     """Spreads the fingers on a humanoid avatar"""
     bl_idname = "armature.spreadfingers"
     bl_label = "Spread Fingers"
@@ -996,7 +1012,7 @@ class ArmatureSpreadFingers(bpy.types.Operator):
 
         return self.execute(context)
 
-class ArmatureShrinkHip(bpy.types.Operator):
+class ArmatureShrinkHip(ArmatureOperator):
     """Shrinks the hip bone in a humaniod avatar to be much closer to the spine location"""
     bl_idname = "armature.shrink_hips"
     bl_label = "Shrink Hips"
@@ -1006,7 +1022,7 @@ class ArmatureShrinkHip(bpy.types.Operator):
         shrink_hips()
         return {'FINISHED'}
 
-class UIGetCurrentHeight(bpy.types.Operator):
+class UIGetCurrentHeight(ArmatureOperator):
     """Sets target height based on the current height"""
     bl_idname = "armature.get_avatar_height"
     bl_label = "Get Current Avatar Height"
@@ -1022,7 +1038,7 @@ class UIGetCurrentHeight(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class UIGetScaleRatio(bpy.types.Operator):
+class UIGetScaleRatio(ArmatureOperator):
     """Gets the custom scaling ratio based on the current avatar's proportions"""
     bl_idname = "armature.get_scale_ratio"
     bl_label = "Get Current Avatar Scale Ratio"
