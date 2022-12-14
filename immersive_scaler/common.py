@@ -46,7 +46,7 @@ if bpy.app.version >= (3, 2):
     # Context.temp_override
     def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
                     execution_context: Optional[str] = None,
-                    undo: Optional[bool] = None, /, **operator_args) -> set[str]:
+                    undo: Optional[bool] = None, **operator_args) -> set[str]:
         """Call an operator with a context override"""
         args = []
         if execution_context is not None:
@@ -61,7 +61,7 @@ if bpy.app.version >= (3, 2):
 else:
     def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
                     execution_context: Optional[str] = None,
-                    undo: Optional[bool] = None, /, **operator_args) -> set[str]:
+                    undo: Optional[bool] = None, **operator_args) -> set[str]:
         """Call an operator with a context override"""
         if context is not None:
             context_base = context.copy()
