@@ -583,8 +583,11 @@ def move_to_floor():
     arm.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT', toggle = False)
     before_zs = {b.name: (b.head.z, b.tail.z) for b in arm.data.edit_bones}
+    use_x_mirror = arm.data.use_mirror_x
+    # Moving bones in edit mode automatically moves symmetrical bones (by name) if use_mirror_x is enabled, but the
+    # bones might be asymmetrical by design, so temporarily disable mirroring if it's enabled.
+    arm.data.use_mirror_x = False
     for bone in arm.data.edit_bones:
-        # FIXME: Breaks bones that are intended to be symmetrical
         #bone.transform(mathutils.Matrix.Translation((0, 0, -dz)))
         bone.head.z = before_zs[bone.name][0] - dz
         bone.tail.z = before_zs[bone.name][1] - dz
@@ -593,6 +596,7 @@ def move_to_floor():
 
         #         print("ERROR: Bone %s also changed bone %s: %f to %f"%(bone.name, b.name, before_zs[b.name], b.head.z))
         #print("%s: %f -> %f: %f"%(bone.name, bz, az, bz - az))
+    arm.data.use_mirror_x = use_x_mirror
     bpy.ops.object.mode_set(mode='EDIT', toggle = True)
 
     bpy.context.scene.cursor.location = (aloc[0],aloc[1],0)
