@@ -770,6 +770,8 @@ def _create_armature_mod_for_apply(armature_obj, mesh_obj, preserve_volume):
     # Rotating joints tends to scale down neighboring geometry, up to nearly zero at 180 degrees from rest position. By
     # enabling Preserve Volume, this no longer happens, but there is a 'gap', a discontinuity when going past 180
     # degrees (presumably the rotation effectively jumps to negative when going past 180 degrees)
+    # This does have an effect when scaling bones, but it's unclear if it's a beneficial effect or even noticeable in
+    # most cases.
     armature_mod.use_deform_preserve_volume = preserve_volume
     return armature_mod
 
@@ -890,7 +892,7 @@ def _apply_armature_to_mesh_with_shape_keys(armature_obj, mesh_obj, preserve_vol
     mesh_obj.show_only_shape_key = old_show_only_shape_key
 
 
-def apply_pose_to_rest(preserve_volume=True):
+def apply_pose_to_rest(preserve_volume=False):
     """Apply pose to armature and meshes, taking into account shape keys on the meshes.
     The armature must be in Pose mode."""
     arm = get_armature()
