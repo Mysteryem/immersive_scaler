@@ -1,6 +1,6 @@
 import bpy
 
-from typing import Optional, Literal, Any
+from typing import Optional, Any
 
 
 def get_armature() -> Optional[bpy.types.Object]:
@@ -41,32 +41,12 @@ def get_armature() -> Optional[bpy.types.Object]:
     return obj
 
 
-_EXECUTION_CONTEXTS = Literal[
-    'INVOKE_DEFAULT',
-    'INVOKE_REGION_WIN',
-    'INVOKE_REGION_CHANNELS',
-    'INVOKE_REGION_PREVIEW',
-    'INVOKE_AREA',
-    'INVOKE_SCREEN',
-    'EXEC_DEFAULT',
-    'EXEC_REGION_WIN',
-    'EXEC_REGION_CHANNELS',
-    'EXEC_REGION_PREVIEW',
-    'EXEC_AREA',
-    'EXEC_SCREEN',
-]
-"""Type hint for execution contexts"""
-
-_OP_RETURN = set[Literal['RUNNING_MODAL', 'CANCELLED', 'FINISHED', 'PASS_THROUGH', 'INTERFACE']]
-"""Type hint for operator return values"""
-
-
 if bpy.app.version >= (3, 2):
     # Passing in context_override as a positional-only argument is deprecated as of Blender 3.2, replaced with
     # Context.temp_override
     def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
-                    execution_context: Optional[_EXECUTION_CONTEXTS] = None,
-                    undo: Optional[bool] = None, /, **operator_args) -> _OP_RETURN:
+                    execution_context: Optional[str] = None,
+                    undo: Optional[bool] = None, /, **operator_args) -> set[str]:
         """Call an operator with a context override"""
         args = []
         if execution_context is not None:
@@ -80,8 +60,8 @@ if bpy.app.version >= (3, 2):
             return operator(*args, **operator_args)
 else:
     def op_override(operator, context_override: dict[str, Any], context: Optional[bpy.types.Context] = None,
-                    execution_context: Optional[_EXECUTION_CONTEXTS] = None,
-                    undo: Optional[bool] = None, /, **operator_args) -> _OP_RETURN:
+                    execution_context: Optional[str] = None,
+                    undo: Optional[bool] = None, /, **operator_args) -> set[str]:
         """Call an operator with a context override"""
         if context is not None:
             context_base = context.copy()
