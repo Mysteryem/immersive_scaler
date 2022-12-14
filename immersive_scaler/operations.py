@@ -484,8 +484,8 @@ def scale_legs(arm, leg_scale_ratio, leg_thickness, scale_foot, thigh_percentage
 def start_pose_mode_with_reset(arm):
     """Replacement for Cats 'start pose mode' operator"""
     # Ensure armature isn't hidden
-    # FIXME: unhide_obj is broken. Should do this better as we likely need to take into account the armature being
-    #  hidden due to all the collections its in being hidden
+    # FIXME: unhide_obj is broken. It looks like bpy.ops.object.mode_set doesn't even care about hide_set and only cares
+    #  about hide_viewport not being True?
     # unhide_obj(arm)
     arm.hide_set(False)
     # Clear the current pose of the armature
@@ -584,6 +584,7 @@ def move_to_floor():
     bpy.ops.object.mode_set(mode='EDIT', toggle = False)
     before_zs = {b.name: (b.head.z, b.tail.z) for b in arm.data.edit_bones}
     for bone in arm.data.edit_bones:
+        # FIXME: Breaks bones that are intended to be symmetrical
         #bone.transform(mathutils.Matrix.Translation((0, 0, -dz)))
         bone.head.z = before_zs[bone.name][0] - dz
         bone.tail.z = before_zs[bone.name][1] - dz
@@ -617,7 +618,8 @@ def recursive_scale(obj):
     bpy.context.view_layer.objects.active = obj
     obj.select_set(True)
     print("Scaling {} by {}".format(obj.name, 1 / obj.scale[0]))
-    # FIXME: Fails on multi-user data
+    # Would fail on multi-user data, but is only called after applying as rest pose, which will replace multi-user data
+    # with copies
     bpy.ops.object.transform_apply(scale = True, location = False, rotation = False, properties = False)
 
     for c in obj.children:
