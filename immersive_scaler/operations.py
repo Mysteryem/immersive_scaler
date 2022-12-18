@@ -67,6 +67,14 @@ bone_names = {
     "neck": ["neck"],
 }
 
+
+def get_bone_worldspace_z(name, arm):
+    """get_lowest_point() and get_highest_point() return positions in worldspace, sometimes we need to measure between
+    these points and bones, which requires that the bone positions are also in worldspace.
+    This convenience method will return the worldspace z position of the head of a bone."""
+    return (arm.matrix_world @ get_bone(name, arm).head).z
+
+
 def get_bone(name, arm):
     # First check that there's no override
     s = bpy.context.scene
@@ -141,6 +149,7 @@ def get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
 
 
 def get_lowest_point():
+    """Get the lowest z coordinate of all vertices of all meshes of the avatar, in worldspace"""
     arm = get_armature()
     bones = set()
     for bone in (get_bone("left_ankle", arm), get_bone("right_ankle", arm)):
@@ -343,55 +352,120 @@ def get_current_scaling(obj):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='POSE', toggle = False)
 
-    ratio = head_to_hand(obj) / (get_eye_height(obj) - .005)
+    # TODO: What's the minus .005 on the end? I'm going to assume it's intended to be in worldspace
+    ratio = head_to_hand(obj) / (get_eye_height(obj) - .005 - get_lowest_point())
 
     bpy.ops.object.mode_set(mode='POSE', toggle = True)
     return ratio
 
 
-def head_to_hand(obj):
-    """Get the length from the head to the start of the wrist bone as if the armature was in t-pose"""
-    # Since arms might not be flat, add the length of the arm to the x
-    # coordinate of the upper arm
-    headpos = get_bone("head", obj).head
-    neckpos = get_bone("neck", obj).head
+def get_arm_length(obj, worldspace=True):
+    """Get the length of the (right) arm as if its bones are fully straightened"""
     upper_arm = get_bone("right_arm", obj).head
     elbow = get_bone("right_elbow", obj).head
     wrist = get_bone("right_wrist", obj).head
     # Unity bones are from joint to joint, ignoring whatever the tail may be in Blender
-    # Length from upper_arm joint to elbow joint
-    upper_arm_length = (upper_arm - elbow).length
-    # Length from elbow joint to wrist joint
-    lower_arm_length = (elbow - wrist).length
-    arm_length = upper_arm_length + lower_arm_length
-    # We're working with the right arm, which is on the -x side in Blender, so subtract arm length from the x of start
-    # of the arm to get the position of the wrist if the arms were in t-pose (we're assuming a t-pose without any
-    # shoulder movement).
-    t_hand_pos = mathutils.Vector((upper_arm.x - arm_length, upper_arm.y, upper_arm.z))
-    bpy.context.scene.cursor.location = t_hand_pos
-    return (headpos - t_hand_pos).length
+    if worldspace:
+        # Since the translation by the matrix will be the same for all the vectors, and we're only calculating length,
+        # we can ignore the translation and work solely with 3d vector math (instead of 4d).
+        #
+        # Notes on working with 4d vector math:
+        #   To work with 4d vector math, we would have to extend the 3d vectors to 4d with their w components set to
+        #   1.0. This means that subtracting one vector from another will result in a vector with a w component of 0.0.
+        #
+        #   Note that attempting to multiply a 4x4 matrix by a 3d vector will automatically extend the vector to 4d with
+        #   w set to 1.0, perform the multiplication and then remove the w component from the final result. This is fine
+        #   for multiplying a matrix by a single 3d vector position, but if the vector being multiplied is added, or
+        #   subtracted with another vector beforehand, then the result will be wrong, because the automatic w component
+        #   of 1.0 will not be the correct value.
+        wm = obj.matrix_world.to_3x3()
+        # Length from upper_arm joint to elbow joint
+        upper_arm_length = (wm @ (upper_arm - elbow)).length
+        # Length from elbow joint to wrist joint
+        lower_arm_length = (wm @ (elbow - wrist)).length
+    else:
+        # Length from upper_arm joint to elbow joint
+        upper_arm_length = (upper_arm - elbow).length
+        # Length from elbow joint to wrist joint
+        lower_arm_length = (elbow - wrist).length
+
+    return upper_arm_length + lower_arm_length
+
+
+def head_to_hand(obj, worldspace=True):
+    """Get the length from the head to the start of the wrist bone as if the armature was in t-pose"""
+    # Since arms might not be flat, add the length of the arm to the x
+    # coordinate of the upper arm
+
+    """
+    head_to_hand is the distance from headpos to (upper_arm - (arm_length, 0, 0))
+    (please excuse the poorly drawn triangles)
+    
+    Avatar as seen from the front:
+                                      head_to_hand   ¸ . o headpos
+                                           ¸ . - ' `    /
+    (upper_arm - (arm_length, 0, 0)) o ' ` - - - - - - o upper_arm
+                                              ¦
+                                          arm_length
+
+    Subtract upper_arm from each point for simplicity
+                         head_to_hand   ¸ . o (headpos - upper_arm)
+                              ¸ . - ' `    /
+    (-arm_length, 0, 0) o ' ` - - - - - - o (0,0,0)
+    
+    head_to_hand
+     = ((headpos - upper_arm) - (-arm_length, 0, 0)).length
+    Could be further simplified:
+     = (headpos.x - upper_arm.x + arm_length, headpos.y - upper_arm.y, headpos.z - upper_arm.z).length
+     = sqrt(
+                (headpos.x - upper_arm.x + arm_length) ** 2
+                + (headpos.y - upper_arm.y) ** 2
+                + (headpos.z - upper_arm.z) ** 2
+            )
+    """
+    headpos = get_bone("head", obj).head
+    upper_arm = get_bone("right_arm", obj).head
+
+    upper_arm_to_head = headpos - upper_arm
+    if worldspace:
+        # translation by the world matrix would be the same for both vectors, and we're only returning a length, so we
+        # can ignore translation and use only the 3x3 part, the scale and rotation.
+        upper_arm_to_head = (obj.matrix_world.to_3x3() @ upper_arm_to_head)
+
+    arm_length = get_arm_length(obj, worldspace)
+
+    # We're working with the right arm, which is on the -x side in Blender, so arm_length will be negative
+    t_hand_pos = mathutils.Vector((-arm_length, 0, 0))
+
+    return (upper_arm_to_head - t_hand_pos).length
 
 
 def calculate_arm_rescaling(obj, head_arm_change):
     # Calculates the percent change in arm length needed to create a
     # given change in head-hand length.
 
-    unhide_obj(obj)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode='POSE', toggle = False)
+    # This function gets called before start_pose_mode_with_reset is called in scale_to_floor, so the current mode could
+    # be EDIT mode, which could have changes that are not yet propagated to the pose data
+    # Object.update_from_editmode() only seems to update the Bones of the armature and not the PoseBones of the armature
+    # Object, so I don't think that can be used instead of swapping
+    need_mode_swap = obj.mode == 'EDIT'
+    if need_mode_swap:
+        # EDIT mode
+        unhide_obj(obj)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode='POSE', toggle = False)
 
-    rhandpos = get_bone("right_wrist", obj).head
     rarmpos = get_bone("right_arm", obj).head
     headpos = get_bone("head", obj).head
-    neckpos = get_bone("neck", obj).head
 
-    # Reset t-pose to whatever it was before since we have the data we
-    # need
-    bpy.ops.object.mode_set(mode='POSE', toggle = True)
+    if need_mode_swap:
+        # Restore original mode
+        bpy.ops.object.mode_set(mode='POSE', toggle = True)
 
-    total_length = head_to_hand(obj)
-    print("Arm length is {}".format(total_length))
-    arm_length = (rarmpos - rhandpos).length
+    total_length = head_to_hand(obj, worldspace=False)
+    print("Head to hand length is {}".format(total_length))
+    arm_length = get_arm_length(obj, worldspace=False)
+    print(f"Arm length is {arm_length}")
     neck_length = abs((headpos[2] - rarmpos[2]))
 
     # Sanity check - compare the difference between head_to_hand and manual
@@ -418,7 +492,7 @@ def calculate_arm_rescaling(obj, head_arm_change):
     return arm_change
 
 
-def get_eye_height(obj):
+def get_eye_height(obj, worldspace=True):
     try:
         left_eye = get_bone("left_eye", obj)
         right_eye = get_bone("right_eye", obj)
@@ -427,23 +501,44 @@ def get_eye_height(obj):
 
     eye_average = (left_eye.head + right_eye.head) / 2
 
-    return eye_average[2]
+    if worldspace:
+        # By coincidence, multiplying the full, 4d matrix_world works with eye_average, since the w component of
+        # eye_average would be (1.0 + 1.0) / 2 = 1 if it were to be calculated from 4d left_eye and 4d right_eye
+        return (obj.matrix_world @ eye_average).z
+    else:
+        return eye_average.z
+
 
 def get_leg_length(arm):
+    """Assuming exact symmetry of both legs, gets vertical leg length, from the start of the upper leg bone to the
+    lowest part of mesh weighted to feet or a child bone of the feet. If no mesh is weighted to the feet (or a child
+    bone, the lowest mesh vertex is used instead).
+    :return: Worldspace vertical leg length"""
     # Assumes exact symmetry between right and left legs
-    return get_bone("left_leg", arm).head[2] - get_lowest_point()
+    return get_bone_worldspace_z("left_leg", arm) - get_lowest_point()
+
 
 def get_leg_proportions(arm):
-    # Gets the relative lengths of each portion of the leg
-    l = [
-        (get_bone('left_leg', arm).head[2] + get_bone('right_leg', arm).head[2]) / 2,
-        (get_bone('left_knee', arm).head[2] + get_bone('right_knee', arm).head[2]) / 2,
-        (get_bone('left_ankle', arm).head[2] + get_bone('right_ankle', arm).head[2]) / 2,
-        get_lowest_point()
-    ]
+    """Get the relative lengths in the worldspace z direction of each portion of the leg starting from the top of the
+    leg and ending at the lowest vertex of the avatar's feet (or lowest vertex of the avatar if no vertices are weighted
+    to the feet bones or children of the feet bones).
 
-    total = l[0] - l[3]
-    nl = list([1 - (i-l[3])/total for i in l])
+    Returns a tuple of the list of relative lengths and the total length of the leg.
+
+    :return: [0.0, relative_length_to_knee, relative_length_to_ankle, 1.0], leg_worldspace_z - lowest_point"""
+    leg_average_z = (get_bone_worldspace_z('left_leg', arm) + get_bone_worldspace_z('right_leg', arm)) / 2
+    knee_average_z = (get_bone_worldspace_z('left_knee', arm) + get_bone_worldspace_z('right_knee', arm)) / 2
+    ankle_average_z = (get_bone_worldspace_z('left_ankle', arm) + get_bone_worldspace_z('right_ankle', arm)) / 2
+    lowest_point = get_lowest_point()
+
+    total = leg_average_z - lowest_point
+    # The first point is leg_average_z, which always results in 0.0
+    # 1 - (leg_average_z - lowest_point) / (leg_average_z - lowest_point)
+    # = 1 - 1 = 0
+    # The last point is lowest_point, which always results in 1.0
+    # 1 - (lowest_point - lowest_point) / total
+    # = 1 - 0 / total = 1 - 0 = 1
+    nl = [0.0] + [1 - (i-lowest_point)/total for i in (knee_average_z, ankle_average_z)] + [1.0]
     return nl, total
 
 
@@ -656,9 +751,10 @@ def recursive_scale(obj):
 def scale_to_height(new_height, scale_eyes):
     obj = get_armature()
     unhide_obj(obj)
-    old_height = get_highest_point() - get_lowest_point()
     if scale_eyes:
         old_height = get_eye_height(obj) - get_lowest_point()
+    else:
+        old_height = get_highest_point() - get_lowest_point()
 
     print("Old height is %f"%old_height)
 
