@@ -109,7 +109,7 @@ else:
         return np.array(obj.bound_box, dtype=np.single)
 
 
-def get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
+def _get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix, func):
     if v_co.dtype != np.single:
         # The dtype isn't too important when not using foreach_set/foreach_get. Given another float type it would just
         # mean we're doing math with more (or less) precision than existed in the first place.
@@ -119,33 +119,39 @@ def get_global_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
     # Create a view of the array so that when we set the shape, we set the shape of the view rather than the original
     # array
     v_co = v_co.view()
-    # Convert mathutils.Matrix to an np.ndarray
-    wm = np.array(wm, dtype=np.single)
+    # Convert mathutils.Matrix to an np.ndarray and remove the translation.
+    # Since every vertex will be translated the same amount, we can add the translation on at the end. This means that
+    # we only need to do 3d matrix multiplication instead of 4d, which would also have required us to extend v_co to
+    # 4d. The end result is that the function runs faster.
+    wm3x3 = np.array(wm.to_3x3(), dtype=np.single)
 
     # Change the shape we view the data with so that each element corresponds to a single vertex's (x,y,z)
     v_co.shape = (-1, 3)
-    # We have a 4x4 matrix, but each vertex co has only 3 elements. Unlike multiplying a 4x4 mathutils.Matrix
-    # with a 3-length mathutils.Vector, numpy won't automatically extend the vector to have a 4th element with value
-    # of 1 (and will instead raise an error).
-    # Add 1 to the end of each element in the array using np.insert
-    index_to_insert_before = 3
-    value_to_insert = 1
-    v_co4 = np.insert(v_co, index_to_insert_before, value_to_insert, axis=1)
-    # To multiply the matrix (4, 4) by each vector in (num_verts, 4), we can transpose the entire array to turn it
+    # To multiply the matrix (3, 3) by each vector in (num_verts, 3), we can transpose the entire array to turn it
     # on its side and treat it as one giant matrix whereby each column is one vector. Note that with numpy, the
     # transpose of an ndarray is a view, no data is copied.
-    # ┌a, b, c, d┐   ┌x1, y1, z1, 1┐    ┌a, b, c, d┐   ┌x1, x2, x3, x4, …, xn┐
-    # │e, f, g, h│ ? │x2, y2, z2, 1│ -> │e, f, g, h│ @ │y1, y2, y3, y4, …, yn│
-    # │i, j, k, l│   │x3, y3, z3, 1│    │i, j, k, l│   │z1, z2, z3, z4, …, zn│
-    # └m, n, o, p┘   │x4, y4, z4, 1│    └m, n, o, p┘   └ 1,  1,  1,  1, …,  1┘
-    #                ┊ …,  …,  …, …┊
-    #                └xn, yn, zn, 1┘
-    # This gives us a result with the shape (4, num_verts). The alternative would be to transpose the matrix instead
-    # and do `vco_4 @ wm.T`, which would give us the transpose of the first result with the shape (num_verts, 4).
-    v_co4_global_t = wm @ v_co4.T
+    # ┌a, b, c┐   ┌x1, y1, z1┐    ┌a, b, c┐   ┌x1, x2, x3, …, xn┐
+    # │e, f, g│ ? │x2, y2, z2│ -> │e, f, g│ @ │y1, y2, y3, …, yn│
+    # └i, j, k┘   │x3, y3, z3│    └i, j, k┘   └z1, z2, z3, …, zn┘
+    #             ┊ …,  …,  …┊
+    #             └xn, yn, zn┘
+    # This gives us a result with the shape (3, num_verts). The alternative would be to transpose the matrix instead
+    # and do `vco_4 @ wm.T`, which would give us the transpose of the first result with the shape (num_verts, 3).
+    v_co4_global_t = wm3x3 @ v_co.T
     # We only care about the z values, which will all currently be in index 2
     global_z_only = v_co4_global_t[2]
-    return global_z_only
+
+    # We've ignored the z translation up to this point. Instead of adding it to every value, just add it to the result
+    # of the min/max function, since it doesn't affect which value is the min/max.
+    return func(global_z_only) + wm.translation.z
+
+
+def get_global_min_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
+    return _get_global_z_from_co_ndarray(v_co, wm, np.min)
+
+
+def get_global_max_z_from_co_ndarray(v_co: np.ndarray, wm: mathutils.Matrix):
+    return _get_global_z_from_co_ndarray(v_co, wm, np.max)
 
 
 def get_lowest_point():
@@ -158,10 +164,9 @@ def get_lowest_point():
 
     meshes = []
     for o in get_body_meshes():
-        # Get z components of worldspace bounding box
-        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
-        # Get minimum z component. This is exceedingly likely to be lower or the same as the lowest vertex in the mesh.
-        likely_lowest_possible_vertex_z = np.min(global_bb_z)
+        # Get minimum worldspace z component. This is exceedingly likely to be lower or the same as the lowest vertex in
+        # the mesh.
+        likely_lowest_possible_vertex_z = get_global_min_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
         # Add the minimum z component along with the mesh object
         meshes.append((likely_lowest_possible_vertex_z, o))
     # Sort meshes by lowest bounding box first, that way, we can stop checking meshes once we get to a mesh whose lowest
@@ -222,9 +227,8 @@ def get_lowest_point():
                 num_verts = len(mesh.vertices)
                 v_co = np.empty(num_verts * 3, dtype=np.single)
                 mesh.vertices.foreach_get('co', v_co)
-            global_z_only = get_global_z_from_co_ndarray(v_co, wm)
             # Get the minimum value
-            min_global_z = np.min(global_z_only)
+            min_global_z = get_global_min_z_from_co_ndarray(v_co, wm)
             # Compare against the current lowest vertex z and set it to whichever is smallest
             lowest_vertex_z = min(lowest_vertex_z, min_global_z)
         else:
@@ -282,11 +286,9 @@ def get_highest_point():
     # weights
     meshes = []
     for o in get_body_meshes():
-        # Get z components of worldspace bounding box
-        global_bb_z = get_global_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
-        # Get maximum z component. This is exceedingly likely to be higher or the same as the highest vertex in the
-        # mesh.
-        likely_highest_possible_vertex_z = np.max(global_bb_z)
+        # Get maximum worldspace z component. This is exceedingly likely to be higher or the same as the highest vertex
+        # in the mesh.
+        likely_highest_possible_vertex_z = get_global_max_z_from_co_ndarray(bound_box_to_co_array(o), o.matrix_world)
         # Add the maximum z component along with the mesh object
         meshes.append((likely_highest_possible_vertex_z, o))
     # Sort meshes by highest bounding box first, that way, we can stop checking meshes once we get to a mesh whose
@@ -314,10 +316,8 @@ def get_highest_point():
 
         v_co = np.empty(num_verts * 3, dtype=np.single)
         vertices.foreach_get('co', v_co)
-        # Get global vertex z values
-        global_z_only = get_global_z_from_co_ndarray(v_co, wm)
-        # Get the maximum value
-        max_global_z = np.max(global_z_only)
+        # Get the maximum value global vertex z value
+        max_global_z = get_global_max_z_from_co_ndarray(v_co, wm)
         # Compare against the current highest vertex z and set it to whichever is greatest
         highest_vertex_z = max(highest_vertex_z, max_global_z)
     if highest_vertex_z == minimum_value:
