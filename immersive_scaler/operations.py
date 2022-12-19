@@ -600,8 +600,10 @@ def start_pose_mode_with_reset(arm):
 def scale_to_floor(arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, scale_hand, thigh_percentage, custom_scale_ratio):
     arm = get_armature()
 
+    lowest_point = get_lowest_point()
+
     view_y = get_view_y(arm, custom_scale_ratio) + extra_leg_length
-    eye_y = get_eye_height(arm)
+    eye_y = get_eye_height(arm) - lowest_point
 
     # TODO: add an option for people who *want* their legs below the floor.
     #
@@ -1135,10 +1137,11 @@ class UIGetCurrentHeight(ArmatureOperator):
 
     def execute(self, context):
         height = 1.5 # Placeholder
+        lowest_point = get_lowest_point()
         if context.scene.scale_eyes:
-            height = get_eye_height(get_armature())
+            height = get_eye_height(get_armature()) - lowest_point
         else:
-            height = get_highest_point()
+            height = get_highest_point() - lowest_point
         context.scene.target_height = height
         return {'FINISHED'}
 
