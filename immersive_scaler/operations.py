@@ -763,7 +763,8 @@ def center_model():
 
 
 def rescale_main(new_height, arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, scale_hand, thigh_percentage, custom_scale_ratio, scale_eyes):
-    s = bpy.context.scene
+    context = bpy.context
+    s = context.scene
 
 
     if not s.debug_no_adjust:
@@ -780,6 +781,8 @@ def rescale_main(new_height, arm_to_legs, arm_thickness, leg_thickness, extra_le
     if s.center_model:
         center_model()
 
+    if context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
 
 def point_bone(bone, point, spread_factor):
