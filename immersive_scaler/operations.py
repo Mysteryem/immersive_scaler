@@ -220,59 +220,43 @@ def get_lowest_point():
             v_co = None
 
         wm = o.matrix_world
-        if not foot_group_indices:
-            # Don't need to get vertex weights, so we can use numpy for performance
-            # If the mesh had shape keys, we will already have the v_co array, otherwise, get it from the vertices
+        foot_v_indices = []
+        if foot_group_indices:
+            # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration.
+            # We expect most vertices to not be weighted to feet, so it's generally slightly faster to get the
+            # .index of each vertex we need rather than to use enumerate
+            for vert in mesh.vertices:
+                # For performance, we want to do as little as possible within the main loop because the slowest part of
+                # the loop is Python itself, getting the attributes, calling functions etc. All we'll do is append the
+                # indices of the vertices that are weighted to feet to a list and then let numpy handle everything else.
+                for group in vert.groups:
+                    # .group is the index of the vertex_group
+                    # .weight is a 'truthy' value whenever it is not zero
+                    if group.group in foot_group_indices and group.weight:
+                        foot_v_indices.append(vert.index)
+                        break
+        found_feet = bool(foot_v_indices)
+        # If there are no indices found that are weighted to feet, but we've previously found vertices that are
+        # weighted to feet, we can ignore this mesh.
+        # Otherwise:
+        #   if we've found vertices weighted to feet, update lowest_foot_z with those vertices,
+        #   else if we've not found vertices weighted to feet, update lowest_vertex_z with all vertices.
+        if found_feet or not found_feet_previously:
             if v_co is None:
-                num_verts = len(mesh.vertices)
-                v_co = np.empty(num_verts * 3, dtype=np.single)
+                # Get v_co array
+                v_co = np.empty(len(mesh.vertices) * 3, dtype=np.single)
                 mesh.vertices.foreach_get('co', v_co)
-            # Get the minimum value
-            min_global_z = get_global_min_z_from_co_ndarray(v_co, wm)
-            # Compare against the current lowest vertex z and set it to whichever is smallest
-            lowest_vertex_z = min(lowest_vertex_z, min_global_z)
-        else:
-            # There are unfortunately no fast methods for getting all vertex weights, so we must resort to iteration
-            # Helper function to reduce duplicate code
-            def find_lowest_z_in_ankles(foot_z_list, vertices):
-                for vert in vertices:
-                    for group in vert.groups:
-                        # .group is the index of the vertex_group
-                        if group.group in foot_group_indices and group.weight:
-                            # The current vertex is weighted
-                            # Calculate the global (world) position
-                            world_co = wm @ vert.co
-                            # Append the z component
-                            foot_z_list.append(world_co[2])
-                            # Don't need to check any of the remaining vertex groups, so break the inner loop
-                            break
-                return min(foot_z_list)
-            if found_feet_previously:
-                # We already have a value for lowest_foot_z, so we won't be using lowest_vertex_z and only need to care
-                # about vertices that are weighted to the ankles or below
-                lowest_foot_z = find_lowest_z_in_ankles([lowest_foot_z], mesh.vertices)
+            # View the array with each element being a single (x,y,z) vector
+            v_co.shape = (-1, 3)
+
+            if found_feet:
+                # Numpy lets us index a numpy array with a list or array of indices (this creates a copy rather than
+                # a view)
+                v_co_feet_only = v_co[foot_v_indices]
+                lowest_foot_z = min(lowest_foot_z, get_global_min_z_from_co_ndarray(v_co_feet_only, wm))
             else:
-                # We don't have a value for lowest_foot_z yet, so we need to record the lowest vertices even if they're
-                # not weighted to the ankles or below
-                vertex_z = [lowest_vertex_z]
-                # Using an iterator specifically because we may want to change to a more optimised loop part way through
-                v_it = iter(mesh.vertices)
-                found_feet = False
-                for v in v_it:
-                    wco = wm @ v.co
-                    z = wco[2]
-                    vertex_z.append(z)
-                    # Check if v is weighted to the ankle or a child
-                    for g in v.groups:
-                        if g.group in foot_group_indices and g.weight:
-                            found_feet = True
-                            # lowest_vertex_z is irrelevant now that we've found a vertex belonging to feet
-                            # Continue iterating with a slightly more optimised loop until the iterator is exhausted
-                            lowest_foot_z = find_lowest_z_in_ankles([lowest_foot_z, z], v_it)
-                            break
-                if not found_feet:
-                    # Didn't manage to find any vertices belonging to feet
-                    lowest_vertex_z = min(vertex_z)
+                # No vertices weighted to feet were found and feet have not been found previously
+                lowest_vertex_z = min(lowest_vertex_z, get_global_min_z_from_co_ndarray(v_co, wm))
     if lowest_foot_z == math.inf:
         if lowest_vertex_z == math.inf:
             raise RuntimeError("No mesh data found")
