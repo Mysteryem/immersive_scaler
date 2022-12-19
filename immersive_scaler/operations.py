@@ -715,13 +715,15 @@ def recursive_object_mode(obj):
     obj.hide_set(hidden)
 
 def recursive_scale(obj):
-    bpy.context.scene.cursor.location = obj.location
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    print("Scaling {} by {}".format(obj.name, 1 / obj.scale[0]))
-    # Would fail on multi-user data, but is only called after applying as rest pose, which will replace multi-user data
-    # with copies
-    bpy.ops.object.transform_apply(scale = True, location = False, rotation = False, properties = False)
+    if any(s != 1.0 for s in obj.scale):
+        bpy.context.scene.cursor.location = obj.location
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        print("Scaling {} by {}".format(obj.name, tuple(1 / s for s in obj.scale)))
+        if obj.data.users > 1:
+            # bpy.ops.object.transform_apply fails on multi-user data, so set this Object's data to a copy
+            obj.data = obj.data.copy()
+        bpy.ops.object.transform_apply(scale = True, location = False, rotation = False, properties = False)
 
     for c in obj.children:
         if not obj_in_scene(c):
