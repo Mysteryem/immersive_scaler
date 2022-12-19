@@ -341,10 +341,7 @@ def get_highest_point():
 
 def get_view_y(obj, custom_scale_ratio=.4537):
     # VRC uses the distance between the head bone and right hand in
-    # t-pose as the basis for world scale. Enforce t-pose locally to
-    # grab this number
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode='POSE', toggle = False)
+    # t-pose as the basis for world scale.
 
     # Gets the in-vrchat virtual height that the view will be at,
     # relative to your actual floor.
@@ -353,8 +350,6 @@ def get_view_y(obj, custom_scale_ratio=.4537):
     # these constants are correct. Testing shows it's at least pretty
     # darn close
     view_y = (head_to_hand(obj) / custom_scale_ratio) + .005
-
-    bpy.ops.object.mode_set(mode='POSE', toggle = True)
 
     return view_y
 
@@ -622,6 +617,10 @@ def start_pose_mode_with_reset(arm):
 def scale_to_floor(arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, scale_hand, thigh_percentage, custom_scale_ratio):
     arm = get_armature()
 
+    # Possibly for these scale calculation parts, before we adjust any bones, we could change the armature pose to
+    # 'REST' instead of resetting the pose and then taking measurements
+    start_pose_mode_with_reset(arm)
+
     lowest_point = get_lowest_point()
 
     view_y = get_view_y(arm, custom_scale_ratio) + extra_leg_length
@@ -643,8 +642,6 @@ def scale_to_floor(arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, 
     print("Total required scale factor is %f" % rescale_ratio)
     print("Scaling legs by a factor of %f to %f" % (leg_scale_ratio, leg_scale_ratio * get_leg_length(arm)))
     print("Scaling arms by a factor of %f" % arm_scale_ratio)
-
-    start_pose_mode_with_reset(arm)
 
     leg_thickness = leg_thickness + leg_scale_ratio * (1 - leg_thickness)
     arm_thickness = arm_thickness + arm_scale_ratio * arm_thickness
