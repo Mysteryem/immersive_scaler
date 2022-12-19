@@ -2,7 +2,8 @@ import bpy
 import mathutils
 import math
 import numpy as np
-from typing import cast
+from typing import cast, List
+from contextlib import contextmanager
 
 from .common import get_armature, op_override
 
@@ -25,25 +26,53 @@ def get_body_meshes():
     return meshes
 
 
-def unhide_obj(obj):
-    # FIXME: completely broken, unhide_obj is this function
-    if not 'hide_states' in dir(unhide_obj):
-        unhide_obj.hide_states = {}
-    if not obj in unhide_obj.hide_states:
-        print("Storing hide state of {} as {}".format(obj.name, obj.hide_get()))
-        unhide_obj.hide_states[obj] = obj.hide_get()
-    obj.hide_set(False)
+@contextmanager
+def temp_ensure_enabled(*objs: bpy.types.Object):
+    """Ensure that objs are enabled in the current scene by setting hide_viewport to False and adding then to the scene
+    collection. Once done, clean up by restoring the hide_viewport value and removing objs from the scene collection if
+    they were not already in the scene collection.
+    It should be safe to delete or rename the objects and/or scene within the 'with' statement."""
+    scene = bpy.context.scene
 
+    # Remove any duplicates from the list of objects
+    unique_objs = []
+    found_objs = set()
+    for obj in objs:
+        if obj not in found_objs:
+            unique_objs.append(obj)
+            found_objs.add(obj)
 
-def rehide_obj(obj):
-    # FIXME: completely broken, unhide_obj is the previous function
-    if not 'hide_states' in dir(unhide_obj):
-        return
-    if not obj in unhide_obj.hide_states:
-        return
-    print("Setting hide state of {} to {}".format(obj.name, unhide_obj.hide_states[obj]))
-    obj.hide_set(unhide_obj.hide_states[obj])
-    del(unhide_obj.hide_states[obj])
+    old_hide_viewports = [obj.hide_viewport for obj in unique_objs]
+
+    added_to_collections = []
+    try:
+        objects = scene.collection.objects
+        for obj in unique_objs:
+            obj.hide_viewport = False
+            if obj.name not in objects:
+                objects.link(obj)
+                added_to_collections.append(True)
+            else:
+                added_to_collections.append(False)
+        yield
+    finally:
+        for obj, old_hide_viewport, added_to_collection in zip(unique_objs, old_hide_viewports, added_to_collections):
+            try:
+                # While we could do `if old_hide_viewport: obj.hide_viewport = True`, this wouldn't always check that
+                # obj is still a valid reference.
+                obj.hide_viewport = old_hide_viewport
+
+                if added_to_collection:
+                    try:
+                        objects = scene.collection.objects
+                        if obj.name in objects:
+                            objects.unlink(obj)
+                    except ReferenceError:
+                        # scene has been deleted
+                        pass
+            except ReferenceError:
+                # obj has been deleted
+                pass
 
 
 bone_names = {
@@ -314,7 +343,6 @@ def get_view_y(obj, custom_scale_ratio=.4537):
     # VRC uses the distance between the head bone and right hand in
     # t-pose as the basis for world scale. Enforce t-pose locally to
     # grab this number
-    unhide_obj(obj)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='POSE', toggle = False)
 
@@ -330,9 +358,8 @@ def get_view_y(obj, custom_scale_ratio=.4537):
 
     return view_y
 
-def get_current_scaling(obj):
 
-    unhide_obj(obj)
+def get_current_scaling(obj):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='POSE', toggle = False)
 
@@ -435,7 +462,6 @@ def calculate_arm_rescaling(obj, head_arm_change):
     need_mode_swap = obj.mode == 'EDIT'
     if need_mode_swap:
         # EDIT mode
-        unhide_obj(obj)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.mode_set(mode='POSE', toggle = False)
 
@@ -580,11 +606,7 @@ def scale_legs(arm, leg_scale_ratio, leg_thickness, scale_foot, thigh_percentage
 
 def start_pose_mode_with_reset(arm):
     """Replacement for Cats 'start pose mode' operator"""
-    # Ensure armature isn't hidden
-    # FIXME: unhide_obj is broken. It looks like bpy.ops.object.mode_set doesn't even care about hide_set and only cares
-    #  about hide_viewport not being True?
-    # unhide_obj(arm)
-    arm.hide_set(False)
+    # Ensure armature is enabled
     # Clear the current pose of the armature
     reset_current_pose(arm.pose.bones)
     # Ensure that the armature data is set to pose position, otherwise setting a pose has no effect
@@ -650,9 +672,6 @@ def scale_to_floor(arm_to_legs, arm_thickness, leg_thickness, extra_leg_length, 
 
 
 def move_to_floor():
-
-    arm = get_armature()
-    unhide_obj(arm)
     dz = get_lowest_point()
 
     aloc = get_armature().location
@@ -664,9 +683,6 @@ def move_to_floor():
 
     meshes = get_body_meshes()
     for obj in meshes:
-        hidden = obj.hide_get()
-        obj.hide_set(False)
-
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
         bpy.ops.object.mode_set(mode='OBJECT', toggle = False)
@@ -675,9 +691,9 @@ def move_to_floor():
 
         # This actually does the moving of the body
         obj.location = (aloc[0],aloc[1],0)
-        obj.hide_set(hidden)
         obj.select_set(False)
 
+    arm = get_armature()
     bpy.context.view_layer.objects.active = arm
     arm.select_set(True)
     bpy.ops.object.mode_set(mode='EDIT', toggle = False)
@@ -702,10 +718,9 @@ def move_to_floor():
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
     arm.select_set(False)
 
+
 def recursive_object_mode(obj):
     bpy.context.view_layer.objects.active = obj
-    hidden = obj.hide_get()
-    obj.hide_set(False)
     bpy.ops.object.mode_set(mode='OBJECT', toggle = False)
     for c in obj.children:
         if not obj_in_scene(c):
@@ -714,7 +729,6 @@ def recursive_object_mode(obj):
             continue
         if 'scale' in dir(c):
             recursive_object_mode(c)
-    obj.hide_set(hidden)
 
 def recursive_scale(obj):
     if any(s != 1.0 for s in obj.scale):
@@ -738,7 +752,6 @@ def recursive_scale(obj):
 
 def scale_to_height(new_height, scale_eyes):
     obj = get_armature()
-    unhide_obj(obj)
     if scale_eyes:
         old_height = get_eye_height(obj) - get_lowest_point()
     else:
@@ -757,7 +770,6 @@ def scale_to_height(new_height, scale_eyes):
     recursive_object_mode(obj)
     recursive_scale(obj)
 
-    rehide_obj(obj)
 
 def center_model():
     arm = get_armature()
@@ -784,6 +796,7 @@ def rescale_main(new_height, arm_to_legs, arm_thickness, leg_thickness, extra_le
         center_model()
 
     if context.mode != 'OBJECT':
+        # Ensure we go to OBJECT mode so that object.select_all can be called
         bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.select_all(action='DESELECT')
 
@@ -1052,6 +1065,35 @@ class ArmatureOperator(bpy.types.Operator):
             return False
         return True
 
+    def execute_main(self, context: bpy.types.Context, arm: bpy.types.Object, meshes: List[bpy.types.Object]):
+        # To be overridden in subclasses
+        return {'FINISHED'}
+
+    def execute(self, context: bpy.types.Context):
+        arm = get_armature()
+        meshes = get_body_meshes()
+        original_active_object = context.active_object
+        if original_active_object:
+            original_mode = original_active_object.mode
+        else:
+            original_mode = None
+
+        try:
+            if context.mode != 'OBJECT':
+                # Make sure we leave any EDIT modes so that data from edit modes is up-to-date.
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+            with temp_ensure_enabled(arm, *meshes):
+                return self.execute_main(context, arm, meshes)
+        finally:
+            # Restore active object and its mode
+            # Though, if multiple objects were in the same mode before, this might result in not all of them re-entering
+            # the mode
+            if context.active_object != original_active_object:
+                context.view_layer.objects.active = original_active_object
+                if original_mode and original_active_object.mode != original_mode:
+                    bpy.ops.object.mode_set(mode=original_mode)
+
 
 class ArmatureRescale(ArmatureOperator):
     """Script to scale most aspects of an armature for use in vrchat"""
@@ -1069,7 +1111,7 @@ class ArmatureRescale(ArmatureOperator):
     # thigh_percentage: bpy.types.Scene.thigh_percentage
     # scale_eyes: bpy.types.Scene.scale_eyes
 
-    def execute(self, context):
+    def execute_main(self, context, arm, meshes):
         rescale_main(
             self.target_height,
             self.arm_to_legs / 100.0,
@@ -1108,7 +1150,7 @@ class ArmatureSpreadFingers(ArmatureOperator):
     # spare_thumb: bpy.types.Scene.spare_thumb
     # spread_factor: bpy.types.Scene.spread_factor
 
-    def execute(self, context):
+    def execute_main(self, context, arm, meshes):
         spread_fingers(self.spare_thumb, self.spread_factor)
         return {'FINISHED'}
 
@@ -1125,7 +1167,7 @@ class ArmatureShrinkHip(ArmatureOperator):
     bl_label = "Shrink Hips"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
+    def execute_main(self, context, arm, meshes):
         shrink_hips()
         return {'FINISHED'}
 
@@ -1135,11 +1177,11 @@ class UIGetCurrentHeight(ArmatureOperator):
     bl_label = "Get Current Avatar Height"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
+    def execute_main(self, context, arm, meshes):
         height = 1.5 # Placeholder
         lowest_point = get_lowest_point()
         if context.scene.scale_eyes:
-            height = get_eye_height(get_armature()) - lowest_point
+            height = get_eye_height(arm) - lowest_point
         else:
             height = get_highest_point() - lowest_point
         context.scene.target_height = height
@@ -1152,8 +1194,8 @@ class UIGetScaleRatio(ArmatureOperator):
     bl_label = "Get Current Avatar Scale Ratio"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
-        scale = get_current_scaling(get_armature())
+    def execute_main(self, context, arm, meshes):
+        scale = get_current_scaling(arm)
         context.scene.custom_scale_ratio = scale
         return {'FINISHED'}
 
